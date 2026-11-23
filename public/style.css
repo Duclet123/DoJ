@@ -34,3 +34,9 @@ form button{justify-self:start}
 .error{color:#962e2b;margin:0}
 footer{border-top:1px solid var(--line);padding:22px 0;color:#4a5a6b}
 @media print{header,footer,form,.toolbar,.private{display:none!important}body{background:white}.card{break-inside:avoid}}
+
+.bar nav{margin-left:auto}
+.filters{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:22px}
+section > input[type="search"]{max-width:540px;margin-bottom:16px}
+.content h1{font:400 clamp(32px,5vw,60px)/1.1 Georgia,serif}
+@media(max-width:650px){.bar{gap:12px}.bar nav{order:3;width:100%;margin:0;justify-content:flex-start;gap:14px}.bar > .button{margin-left:auto}.filters{grid-template-columns:1fr}}
