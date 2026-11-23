@@ -46,7 +46,8 @@ const sessionCookie = 'Path=/; HttpOnly; SameSite=Strict' + (process.env.COOKIE_
 const assets = new Map([
   ['/', ['index.html', 'text/html']],
   ['/style.css', ['style.css', 'text/css']],
-  ['/app.js', ['app.js', 'text/javascript']]
+  ['/app.js', ['app.js', 'text/javascript']],
+  ['/penal-code.json', ['penal-code.json', 'application/json']]
 ].map(([path, [file, type]]) => [path, [readFileSync(new URL('./public/' + file, import.meta.url)), type]]));
 
 function send(res, status, body) {
