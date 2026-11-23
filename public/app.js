@@ -1,4 +1,6 @@
 const view = document.querySelector('#view');
+const accountLink = document.querySelector('#account-link');
+const staticPortal = document.body.dataset.hosting === 'static';
 
 const roleNames = { lawyer: 'Δικηγόρος', prosecutor: 'Εισαγγελέας', judge: 'Δικαστής' };
 const statuses = { filed: 'Κατατέθηκε', scheduled: 'Ορίστηκε ακρόαση', decided: 'Εκδόθηκε απόφαση', published: 'Δημοσιεύτηκε' };
@@ -19,6 +21,10 @@ const date = (value) => new Date(value).toLocaleString('el-GR', { dateStyle: 'me
 const number = (id) => 'DOJ-' + String(id).padStart(4, '0');
 
 async function api(path, payload) {
+  if (staticPortal) {
+    if (path === 'public') return { hearings: [], decisions: [] };
+    throw Object.assign(new Error('Η σύνδεση απαιτεί τον server του DoJ.'), { status: 401 });
+  }
   const result = await fetch('/api/' + path, payload == null ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
   });
@@ -100,20 +106,74 @@ async function publicSite(fragment) {
   return { shell, anchor: fragment === 'hearings' ? hearings : fragment === 'decisions' ? decisions : null };
 }
 
-async function workspace(id) {
+async function penalCode() {
+  const shell = node('div', null, { class: 'wrap content' });
+  shell.append(node('h1', 'Ποινικός Κώδικας'));
+  const response = await fetch('./penal-code.json');
+  if (!response.ok) throw new Error('Ο ποινικός κώδικας δεν φορτώθηκε.');
+  const articles = await response.json();
+  if (!articles.length) {
+    shell.append(node('p', 'Δεν έχουν δημοσιευτεί ακόμα άρθρα του ποινικού κώδικα.'));
+    return { shell };
+  }
+
+  const filters = node('div', null, { class: 'filters' });
+  const search = node('input', null, { type: 'search', placeholder: 'Αριθμός άρθρου, τίτλος ή λέξη-κλειδί', 'aria-label': 'Αναζήτηση άρθρων' });
+  const category = node('select', null, { 'aria-label': 'Κατηγορία άρθρου' });
+  category.append(node('option', 'Όλες οι κατηγορίες', { value: '' }));
+  for (const name of [...new Set(articles.map((article) => article.category))].sort()) {
+    category.append(node('option', name, { value: name }));
+  }
+  filters.append(search, category);
+  const results = node('div', null, { class: 'cards', 'aria-live': 'polite' });
+  const normalize = (value) => value.toLocaleLowerCase('el').normalize('NFD').replace(/\p{M}/gu, '').replaceAll('ς', 'σ');
+  function update() {
+    const query = normalize(search.value.trim());
+    const matches = articles.filter((article) =>
+      (!category.value || category.value === article.category) &&
+      normalize([article.code, article.title, article.description].join(' ')).includes(query)
+    );
+    results.replaceChildren(...matches.map((article) => {
+      const item = card(article.code + ' · ' + article.title, article.category, article.description);
+      if (article.penalty) item.append(node('p', 'Ποινή: ' + article.penalty));
+      if (article.bail) item.append(node('p', 'Εγγύηση: ' + article.bail));
+      return item;
+    }));
+    if (!matches.length) results.append(node('p', 'Δεν βρέθηκαν άρθρα.'));
+  }
+  search.addEventListener('input', update);
+  category.addEventListener('change', update);
+  shell.append(filters, results);
+  update();
+  return { shell };
+}
+
+async function workspace(id, loginRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
   try {
     user = await api('me');
   } catch (error) {
     if (error.status !== 401) throw error;
-    shell.append(node('h2', 'Σύνδεση στο workspace'));
-    form(shell, 'Σύνδεση', [['username', 'Όνομα χρήστη', 'text'], ['password', 'Κωδικός', 'password']], async (data) => {
-      await api('login', data);
-      await render();
-    });
+    shell.append(node('h1', 'Σύνδεση προσωπικού'));
+    if (staticPortal) {
+      shell.append(node('p', 'Η σύνδεση θα είναι διαθέσιμη όταν ενεργοποιηθεί ο server του DoJ.'));
+    } else {
+      form(shell, 'Σύνδεση', [['username', 'Όνομα χρήστη', 'text'], ['password', 'Κωδικός', 'password']], async (data) => {
+        await api('login', data);
+        if (loginRoute) location.hash = '#workspace';
+        else await render();
+      });
+    }
     return { shell };
   }
+
+  if (loginRoute) {
+    location.replace('#workspace');
+    return { shell };
+  }
+  accountLink.textContent = 'Ο λογαριασμός μου';
+  accountLink.href = '#workspace';
 
   const bar = node('div', null, { class: 'toolbar' });
   const logout = node('button', 'Αποσύνδεση', { class: 'secondary' });
@@ -121,7 +181,9 @@ async function workspace(id) {
   logout.addEventListener('click', async () => {
     try {
       await api('logout', {});
-      await render();
+      accountLink.textContent = 'Σύνδεση';
+      accountLink.href = '#login';
+      location.hash = '#login';
     } catch (error) {
       logoutError.textContent = error.message;
     }
@@ -172,16 +234,25 @@ async function workspace(id) {
     return { shell };
   }
 
+  shell.append(node('h1', 'Workspace · ' + roleNames[user.role]));
   const overview = section(shell, 'Οι υποθέσεις μου');
   const cases = await api('cases');
   const grid = node('div', null, { class: 'cards' });
-  for (const item of cases) {
-    const itemLink = link('', '#workspace/' + item.id, 'card-link');
-    itemLink.append(card(number(item.id) + ' · ' + item.title, statuses[item.status]));
-    grid.append(itemLink);
-  }
-  if (!cases.length) grid.append(node('p', 'Δεν σου έχουν ανατεθεί υποθέσεις.'));
+  const search = node('input', null, { type: 'search', placeholder: 'Αριθμός υπόθεσης, τίτλος ή κατηγορούμενος', 'aria-label': 'Αναζήτηση υποθέσεων' });
+  const updateCases = () => {
+    const query = search.value.trim().toLocaleLowerCase('el');
+    const matches = cases.filter((item) => [number(item.id), item.title, item.defendant].join(' ').toLocaleLowerCase('el').includes(query));
+    grid.replaceChildren(...matches.map((item) => {
+      const itemLink = link('', '#workspace/' + item.id, 'card-link');
+      itemLink.append(card(number(item.id) + ' · ' + item.title, statuses[item.status]));
+      return itemLink;
+    }));
+    if (!matches.length) grid.append(node('p', cases.length ? 'Δεν βρέθηκαν υποθέσεις.' : 'Δεν σου έχουν ανατεθεί υποθέσεις.'));
+  };
+  search.addEventListener('input', updateCases);
+  if (cases.length) overview.append(search);
   overview.append(grid);
+  updateCases();
 
   if (user.role === 'prosecutor') {
     const create = section(shell, 'Κατάθεση κατηγορητηρίου');
@@ -210,7 +281,10 @@ async function render() {
   const match = fragment.match(/^workspace(?:\/(\d+))?$/);
   view.replaceChildren(node('p', 'Φόρτωση…', { class: 'wrap content', role: 'status' }));
   try {
-    const { shell, anchor } = await (match ? workspace(match[1]) : publicSite(fragment));
+    const loginRoute = fragment === 'login';
+    const page = loginRoute || match ? workspace(match?.[1], loginRoute) :
+      fragment === 'penal-code' ? penalCode() : publicSite(fragment);
+    const { shell, anchor } = await page;
     if (current !== renderId) return;
     view.replaceChildren(shell);
     if (anchor) anchor.scrollIntoView();
