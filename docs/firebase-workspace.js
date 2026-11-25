@@ -90,7 +90,6 @@ export function connect(config) {
     const user = await profile(auth.currentUser);
     if (path === 'me') return user;
     if (path === 'documents' || path.startsWith('documents/')) {
-      if (user.role !== 'lawyer') throw denied('Το αρχείο εγγράφων είναι διαθέσιμο στους δικηγόρους.', 403);
       const documents = collection(db, 'staff', user.id, 'documents');
       if (!payload) {
         return (await getDocs(documents)).docs.map((item) => ({ id: item.id, ...item.data() }))

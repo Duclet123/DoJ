@@ -102,7 +102,7 @@ service cloud.firestore {
 
       match /documents/{documentId} {
         function ownDocuments() {
-          return staff() && request.auth.uid == uid && role() == 'lawyer';
+          return staff() && request.auth.uid == uid;
         }
         allow read: if ownDocuments();
         allow create, update: if ownDocuments()

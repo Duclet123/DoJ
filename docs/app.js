@@ -1,6 +1,6 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
-const firebaseModuleUrl = new URL('firebase-workspace.js?v=workspace-documents-1', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js?v=workspace-documents-2', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 let connection;
@@ -245,18 +245,33 @@ function caseEntries(parent, label, entries) {
 }
 
 const accountMenu = accountLink.parentElement;
-const sessionDetails = node('div', null, { class: 'account-details', hidden: '' });
+const sessionDetails = node('details', null, { class: 'account-details', hidden: '' });
+const sessionSummary = node('summary', '', { class: 'button' });
+const sessionContent = node('div', null, { class: 'account-popover' });
+const sessionWorkspace = link('Workspace', '#workspace');
 const sessionName = node('strong');
 const sessionRole = node('small');
 const sessionLogout = node('button', 'Αποσύνδεση', { type: 'button', class: 'secondary' });
 const sessionError = node('small', '', { role: 'alert' });
-sessionDetails.append(sessionName, sessionRole, sessionLogout, sessionError);
+sessionContent.append(sessionName, sessionRole, sessionWorkspace, sessionLogout, sessionError);
+sessionDetails.append(sessionSummary, sessionContent);
+sessionWorkspace.addEventListener('click', () => { sessionDetails.open = false; });
+document.addEventListener('click', (event) => {
+  if (sessionDetails.open && !accountMenu.contains(event.target)) sessionDetails.open = false;
+});
+sessionDetails.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && sessionDetails.open) {
+    sessionDetails.open = false;
+    sessionSummary.focus();
+  }
+});
 accountMenu.append(sessionDetails);
 
 function showAccount(user) {
-  accountLink.textContent = user ? 'Workspace' : 'Σύνδεση';
-  accountLink.href = user ? '#workspace' : '#login';
+  accountLink.hidden = Boolean(user);
   sessionDetails.hidden = !user;
+  if (!user) sessionDetails.open = false;
+  sessionSummary.textContent = user?.username || '';
   sessionName.textContent = user?.username || '';
   sessionRole.textContent = user ? [roleNames[user.role], user.email].filter(Boolean).join(' · ') : '';
   sessionError.textContent = '';
@@ -352,16 +367,12 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
 
   const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Workspace' });
   bar.append(link('Οι υποθέσεις μου', '#workspace'));
-  if (user.role === 'lawyer') bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
+  bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
   bar.append(link('Υπογραφή εγγράφου', '#workspace/signature'));
   if (user.admin === true) bar.append(link('Διαχείριση προσωπικού', '#workspace/admin'));
   shell.append(bar);
   if (documentRoute || signatureRoute) {
-    if (documentRoute && user.role !== 'lawyer') {
-      shell.append(node('p', 'Το αρχείο εγγράφων είναι διαθέσιμο στους δικηγόρους.', { role: 'alert' }));
-      return { shell };
-    }
-    const module = await import(new URL('documents.js?v=workspace-documents-1', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=workspace-documents-2', firebaseModuleUrl).href);
     if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
     return { shell };
