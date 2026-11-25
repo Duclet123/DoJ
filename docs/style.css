@@ -75,3 +75,34 @@ section > input[type="search"]{max-width:540px;margin-bottom:16px}
   .case-history[hidden]{display:block!important}
   .case-panel{padding:8px 0;border:0}
 }
+
+.account-menu,.account-details,.document-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.account-details[hidden]{display:none}
+.account-details small{color:inherit}
+.account-details [role="alert"]:empty{display:none}
+.account-details strong{overflow-wrap:anywhere}
+.documents-grid{display:grid;grid-template-columns:minmax(210px,1fr) minmax(0,2.6fr);gap:20px;align-items:start}
+.document-box{background:#fff;border:1px solid var(--line);border-radius:10px;padding:24px}
+.document-box h1{font-size:clamp(25px,4vw,38px);margin-top:0}
+.document-box h2{font-size:27px}
+.documents-grid aside{display:grid;gap:12px}
+.documents-grid aside .button{justify-self:start}
+.documents-grid aside>a:not(.button){padding:9px;border-radius:5px;background:#f1f4f8;overflow-wrap:anywhere}
+.documents-grid aside>a[aria-current]{background:#dce8f3;font-weight:700}
+.document-box form{padding:0;border:0;max-width:none}
+.document-box textarea{min-height:300px}
+.document-tools{margin-top:12px}
+.document-preview summary{cursor:pointer;font-weight:650}
+.document-preview canvas,.signature-page{display:block;width:100%;max-width:660px;height:auto;border:1px solid var(--line);margin:14px 0}
+.signature-pad{display:block;max-width:100%;height:auto;border:1px solid #8293a6;background:#f8fafc;touch-action:none;margin-bottom:10px}
+.signature-page{cursor:crosshair}
+.signature-box input[type=file]{margin-bottom:12px}
+.document-print{display:none}
+@media(max-width:740px){.documents-grid{grid-template-columns:1fr}.account-menu{margin-left:auto;justify-content:flex-end}}
+@media print{
+  body.printing-document{display:block}
+  body.printing-document>*:not(.document-print){display:none!important}
+  .document-print{display:block}
+  .document-print img{display:block;width:100%;max-height:96vh;object-fit:contain;break-inside:avoid;break-after:page}
+  .document-print img:last-child{break-after:auto}
+}

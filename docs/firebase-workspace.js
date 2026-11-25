@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js';
 import { createUserWithEmailAndPassword, getAuth, initializeAuth, inMemoryPersistence, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js';
 import {
-  collection, doc, getDoc, getDocs, getFirestore, query, runTransaction, updateDoc, where, writeBatch
+  collection, doc, serverTimestamp, getDoc, getDocs, getFirestore, query, runTransaction, updateDoc, where, writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js';
 
 const roles = ['lawyer', 'prosecutor', 'judge'];
@@ -20,7 +20,7 @@ export function connect(config) {
     if (!account) throw denied('Χρειάζεται σύνδεση.', 401);
     const ref = await getDoc(doc(profiles, account.uid));
     if (!ref.exists() || !roles.includes(ref.data().role) || ref.data().disabled === true) throw denied('Ο λογαριασμός δεν έχει πρόσβαση στο προσωπικό.', 403);
-    return { id: account.uid, ...ref.data() };
+    return { ...ref.data(), id: account.uid, email: account.email };
   }
 
   async function publicDocket() {
@@ -89,6 +89,26 @@ export function connect(config) {
     if (path === 'logout') { await signOut(auth); return {}; }
     const user = await profile(auth.currentUser);
     if (path === 'me') return user;
+    if (path === 'documents' || path.startsWith('documents/')) {
+      if (user.role !== 'lawyer') throw denied('Το αρχείο εγγράφων είναι διαθέσιμο στους δικηγόρους.', 403);
+      const documents = collection(db, 'staff', user.id, 'documents');
+      if (!payload) {
+        return (await getDocs(documents)).docs.map((item) => ({ id: item.id, ...item.data() }))
+          .sort((a, b) => (b.updated?.seconds || 0) - (a.updated?.seconds || 0));
+      }
+      const title = payload.title.trim();
+      const body = payload.body.trim();
+      if (!title || !body || title.length > 150 || body.length > 12000) throw new Error('Συμπλήρωσε τίτλο και κείμενο εντός των ορίων.');
+      const ref = path === 'documents' ? doc(documents) : doc(documents, path.slice('documents/'.length));
+      const data = { title, body, updated: serverTimestamp() };
+      if (path === 'documents') {
+        const batch = writeBatch(db);
+        batch.set(ref, data);
+        await batch.commit();
+      } else await updateDoc(ref, data);
+      return { id: ref.id };
+    }
+
     if (path.startsWith('staff')) {
       if (user.admin !== true) throw denied('Απαιτείται πρόσβαση διαχειριστή.', 403);
       if (path === 'staff' && !payload) {

@@ -99,6 +99,19 @@ service cloud.firestore {
       allow list: if staff();
       allow create: if admin() && validStaff(request.resource.data);
       allow update: if admin() && !resource.data.get('admin', false) && validStaff(request.resource.data);
+
+      match /documents/{documentId} {
+        function ownDocuments() {
+          return staff() && request.auth.uid == uid && role() == 'lawyer';
+        }
+        allow read: if ownDocuments();
+        allow create, update: if ownDocuments()
+          && request.resource.data.keys().hasOnly(['title', 'body', 'updated'])
+          && text(request.resource.data.title, 150)
+          && text(request.resource.data.body, 12000)
+          && request.resource.data.updated == request.time;
+      }
+
     }
     match /penal/{article} {
       allow read: if true;

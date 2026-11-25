@@ -1,6 +1,6 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
-const firebaseModuleUrl = new URL('firebase-workspace.js?v=case-access-2', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js?v=workspace-documents-1', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 let connection;
@@ -244,6 +244,38 @@ function caseEntries(parent, label, entries) {
   area.append(grid);
 }
 
+const accountMenu = accountLink.parentElement;
+const sessionDetails = node('div', null, { class: 'account-details', hidden: '' });
+const sessionName = node('strong');
+const sessionRole = node('small');
+const sessionLogout = node('button', 'Αποσύνδεση', { type: 'button', class: 'secondary' });
+const sessionError = node('small', '', { role: 'alert' });
+sessionDetails.append(sessionName, sessionRole, sessionLogout, sessionError);
+accountMenu.append(sessionDetails);
+
+function showAccount(user) {
+  accountLink.textContent = user ? 'Workspace' : 'Σύνδεση';
+  accountLink.href = user ? '#workspace' : '#login';
+  sessionDetails.hidden = !user;
+  sessionName.textContent = user?.username || '';
+  sessionRole.textContent = user ? [roleNames[user.role], user.email].filter(Boolean).join(' · ') : '';
+  sessionError.textContent = '';
+}
+
+sessionLogout.addEventListener('click', async () => {
+  sessionLogout.disabled = true;
+  try {
+    await api('logout', {});
+    showAccount(null);
+    if (location.hash === '#login') await render();
+    else location.hash = '#login';
+  } catch (error) {
+    sessionError.textContent = error.message;
+  } finally {
+    sessionLogout.disabled = false;
+  }
+});
+
 let activeCaseTab;
 
 function caseTabs(parent, id, tabs) {
@@ -284,13 +316,14 @@ function caseTabs(parent, id, tabs) {
   parent.append(bar, ...rows.map((row) => row.panel));
 }
 
-async function workspace(id, loginRoute, adminRoute) {
+async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
   try {
     user = await api('me');
   } catch (error) {
     if (![401, 403, 503].includes(error.status)) throw error;
+    showAccount(null);
     shell.append(node('h1', 'Σύνδεση προσωπικού'));
     if (error.status !== 401) shell.append(node('p', error.message, { role: 'status' }));
     if (error.status === 403) {
@@ -315,25 +348,25 @@ async function workspace(id, loginRoute, adminRoute) {
     location.replace('#workspace');
     return { shell };
   }
-  accountLink.textContent = 'Ο λογαριασμός μου';
-  accountLink.href = '#workspace';
+  showAccount(user);
 
-  const bar = node('div', null, { class: 'toolbar workspace-bar' });
-  const logout = node('button', 'Αποσύνδεση', { class: 'secondary' });
-  const logoutError = node('span', '', { class: 'error', role: 'alert' });
-  logout.addEventListener('click', async () => {
-    try {
-      await api('logout', {});
-      accountLink.textContent = 'Σύνδεση';
-      accountLink.href = '#login';
-      location.hash = '#login';
-    } catch (error) {
-      logoutError.textContent = error.message;
-    }
-  });
-  bar.append(link('Οι υποθέσεις μου', '#workspace'), node('span', roleNames[user.role] + ' · ' + user.username), logout, logoutError);
+  const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Workspace' });
+  bar.append(link('Οι υποθέσεις μου', '#workspace'));
+  if (user.role === 'lawyer') bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
+  bar.append(link('Υπογραφή εγγράφου', '#workspace/signature'));
   if (user.admin === true) bar.append(link('Διαχείριση προσωπικού', '#workspace/admin'));
   shell.append(bar);
+  if (documentRoute || signatureRoute) {
+    if (documentRoute && user.role !== 'lawyer') {
+      shell.append(node('p', 'Το αρχείο εγγράφων είναι διαθέσιμο στους δικηγόρους.', { role: 'alert' }));
+      return { shell };
+    }
+    const module = await import(new URL('documents.js?v=workspace-documents-1', firebaseModuleUrl).href);
+    if (signatureRoute) module.signaturePanel(shell, node);
+    else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
+    return { shell };
+  }
+
   if (adminRoute) {
     if (user.admin !== true) {
       shell.append(node('p', 'Απαιτείται πρόσβαση διαχειριστή.', { role: 'alert' }));
@@ -484,7 +517,14 @@ async function render(message) {
   try {
     const loginRoute = fragment === 'login';
     const adminRoute = fragment === 'workspace/admin';
-    const page = loginRoute || adminRoute || match ? workspace(match?.[1], loginRoute, adminRoute) :
+    const documentRoute = fragment.match(/^workspace\/documents(?:\/([A-Za-z0-9]{20}))?$/);
+    const signatureRoute = fragment === 'workspace/signature';
+    const inWorkspace = loginRoute || adminRoute || match || documentRoute || signatureRoute;
+    if (!inWorkspace) {
+      api('me').then((user) => { if (renderId === current) showAccount(user); })
+        .catch(() => { if (renderId === current) showAccount(null); });
+    }
+    const page = inWorkspace ? workspace(match?.[1], loginRoute, adminRoute, documentRoute, signatureRoute) :
       fragment === 'penal-code' ? penalCode() : publicSite(fragment);
     const { shell, anchor, status } = await page;
     if (current !== renderId) return;
