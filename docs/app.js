@@ -111,9 +111,20 @@ async function publicSite(fragment) {
   const shell = node('div');
   const hero = node('div', null, { class: 'hero' });
   const intro = node('div', null, { class: 'wrap' });
-  intro.append(node('h1', 'Department of Justice'), node('p', 'Δημόσια πύλη δικαιοσύνης του RP. Δες τις προγραμματισμένες ακροάσεις και τις δημοσιευμένες αποφάσεις.'), link('Πρόγραμμα ακροάσεων', '#hearings', 'button'));
+  intro.append(node('span', 'Court of San Andreas', { class: 'hero-kicker' }), node('h1', 'Department of Justice'), node('p', 'Δημόσια πύλη δικαιοσύνης του RP. Δες τις προγραμματισμένες ακροάσεις και τις δημοσιευμένες αποφάσεις.'), link('Πρόγραμμα ακροάσεων', '#hearings', 'button'));
   hero.append(intro);
-  const content = node('div', null, { class: 'wrap' });
+  const content = node('div', null, { class: 'wrap public-records' });
+  const services = node('nav', null, { class: 'public-services', 'aria-label': 'Δημόσιες υπηρεσίες' });
+  for (const [title, detail, href] of [
+    ['Ποινικός Κώδικας', 'Δημοσιευμένα άρθρα', '#penal-code'],
+    ['Ακροάσεις', 'Πρόγραμμα δικαστηρίου', '#hearings'],
+    ['Αποφάσεις', 'Δημόσιες δικαστικές αποφάσεις', '#decisions']
+  ]) {
+    const item = link('', href);
+    item.append(node('strong', title), node('small', detail));
+    services.append(item);
+  }
+  content.append(services);
   const hearings = section(content, 'Προσεχείς ακροάσεις', 'hearings');
   const decisions = section(content, 'Δημοσιευμένες αποφάσεις', 'decisions');
   shell.append(hero, content);
@@ -364,12 +375,19 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     return { shell };
   }
   showAccount(user);
+  shell.classList.add('workspace-editorial');
 
   const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Workspace' });
   bar.append(link('Οι υποθέσεις μου', '#workspace'));
   bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
   bar.append(link('Υπογραφή εγγράφου', '#workspace/signature'));
   if (user.admin === true) bar.append(link('Διαχείριση προσωπικού', '#workspace/admin'));
+  for (const item of bar.querySelectorAll('a')) {
+    const target = item.getAttribute('href');
+    if (target === location.hash || (documentRoute && target === '#workspace/documents') || (id && target === '#workspace')) {
+      item.setAttribute('aria-current', 'page');
+    }
+  }
   shell.append(bar);
   if (documentRoute || signatureRoute) {
     const module = await import(new URL('documents.js?v=workspace-documents-2', firebaseModuleUrl).href);
