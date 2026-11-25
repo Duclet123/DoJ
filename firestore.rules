@@ -15,13 +15,23 @@ service cloud.firestore {
     }
     function staff() {
       return request.auth != null && exists(staffPath(request.auth.uid))
-        && get(staffPath(request.auth.uid)).data.role in ['lawyer', 'prosecutor', 'judge'];
+        && get(staffPath(request.auth.uid)).data.role in ['lawyer', 'prosecutor', 'judge']
+        && !get(staffPath(request.auth.uid)).data.get('disabled', false);
+    }
+    function admin() {
+      return staff() && get(staffPath(request.auth.uid)).data.get('admin', false) == true;
+    }
+    function validStaff(data) {
+      return data.keys().hasOnly(['username', 'role', 'disabled'])
+        && text(data.username, 100) && data.role in ['lawyer', 'prosecutor', 'judge']
+        && data.get('disabled', false) is bool;
     }
     function role() {
       return get(staffPath(request.auth.uid)).data.role;
     }
     function hasRole(uid, expected) {
-      return uid is string && exists(staffPath(uid)) && get(staffPath(uid)).data.role == expected;
+      return uid is string && exists(staffPath(uid)) && get(staffPath(uid)).data.role == expected
+        && !get(staffPath(uid)).data.get('disabled', false);
     }
     function assigned(data) {
       return staff() && data[role()] == request.auth.uid;
@@ -69,7 +79,9 @@ service cloud.firestore {
 
     match /staff/{uid} {
       allow get: if request.auth != null && (request.auth.uid == uid || staff());
-      allow list: if staff() && role() == 'prosecutor';
+      allow list: if admin() || (staff() && role() == 'prosecutor');
+      allow create: if admin() && validStaff(request.resource.data);
+      allow update: if admin() && !resource.data.get('admin', false) && validStaff(request.resource.data);
     }
     match /penal/{article} {
       allow read: if true;

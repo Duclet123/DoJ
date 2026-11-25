@@ -75,7 +75,7 @@ function form(parent, submitLabel, fields, submit) {
       for (const option of options) input.append(node('option', option.username, { value: option.id }));
     }
     if (tag === 'textarea') input.maxLength = 12000;
-    if (type === 'password') input.autocomplete = 'current-password';
+    if (type === 'password') input.autocomplete = name === 'newPassword' ? 'new-password' : 'current-password';
     if (name === 'username') input.autocomplete = 'username';
     wrapper.append(input);
     element.append(wrapper);
@@ -176,7 +176,42 @@ async function penalCode() {
   return { shell };
 }
 
-async function workspace(id, loginRoute) {
+async function staffPanel(shell) {
+  const area = section(shell, 'Διαχείριση προσωπικού');
+  const accounts = await api('staff');
+  const roles = Object.entries(roleNames).map(([id, username]) => ({ id, username }));
+  const message = node('p', '', { role: 'status' });
+  const create = section(area, 'Νέος λογαριασμός');
+  form(create, 'Δημιουργία λογαριασμού', [
+    ['email', 'Email', 'email'],
+    ['username', 'Όνομα εμφάνισης', 'text'],
+    ['newPassword', 'Αρχικός κωδικός (τουλάχιστον 8 χαρακτήρες)', 'password'],
+    ['role', 'Ρόλος', 'select', roles]
+  ], async ({ newPassword, ...data }) => {
+    await api('staff', { ...data, password: newPassword });
+    await render('Ο λογαριασμός δημιουργήθηκε.');
+  });
+  const roster = section(area, 'Λογαριασμοί προσωπικού');
+  const grid = node('div', null, { class: 'cards' });
+  const states = [{ id: 'active', username: 'Ενεργός' }, { id: 'disabled', username: 'Ανενεργός' }];
+  for (const account of accounts) {
+    const item = card(account.username, roleNames[account.role] + (account.admin ? ' · Admin' : ''));
+    if (!account.admin) {
+      form(item, 'Αποθήκευση', [['role', 'Ρόλος', 'select', roles], ['state', 'Πρόσβαση', 'select', states]], async (data) => {
+        await api('staff/' + account.id, { role: data.role, disabled: data.state === 'disabled' });
+        await render('Οι ρυθμίσεις αποθηκεύτηκαν.');
+      });
+      item.querySelector('[name="role"]').value = account.role;
+      item.querySelector('[name="state"]').value = account.disabled ? 'disabled' : 'active';
+    }
+    grid.append(item);
+  }
+  roster.append(grid);
+  area.prepend(message);
+  return message;
+}
+
+async function workspace(id, loginRoute, adminRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
   try {
@@ -224,7 +259,16 @@ async function workspace(id, loginRoute) {
     }
   });
   bar.append(link('Οι υποθέσεις μου', '#workspace'), node('span', roleNames[user.role] + ' · ' + user.username), logout, logoutError);
+  if (user.admin === true) bar.append(link('Διαχείριση προσωπικού', '#workspace/admin'));
   shell.append(bar);
+  if (adminRoute) {
+    if (user.admin !== true) {
+      shell.append(node('p', 'Απαιτείται πρόσβαση διαχειριστή.', { role: 'alert' }));
+      return { shell };
+    }
+    const status = await staffPanel(shell);
+    return { shell, status };
+  }
 
   if (id) {
     let record;
@@ -310,17 +354,19 @@ async function workspace(id, loginRoute) {
 }
 
 let renderId = 0;
-async function render() {
+async function render(message) {
   const current = ++renderId;
   const fragment = location.hash.slice(1);
   const match = fragment.match(/^workspace(?:\/([A-Za-z0-9]{20}))?$/);
   view.replaceChildren(node('p', 'Φόρτωση…', { class: 'wrap content', role: 'status' }));
   try {
     const loginRoute = fragment === 'login';
-    const page = loginRoute || match ? workspace(match?.[1], loginRoute) :
+    const adminRoute = fragment === 'workspace/admin';
+    const page = loginRoute || adminRoute || match ? workspace(match?.[1], loginRoute, adminRoute) :
       fragment === 'penal-code' ? penalCode() : publicSite(fragment);
-    const { shell, anchor } = await page;
+    const { shell, anchor, status } = await page;
     if (current !== renderId) return;
+    if (status && typeof message === 'string') status.textContent = message;
     view.replaceChildren(shell);
     if (anchor) anchor.scrollIntoView();
     else window.scrollTo(0, 0);

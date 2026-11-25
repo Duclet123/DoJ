@@ -1,7 +1,7 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js';
+import { deleteApp, initializeApp } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js';
+import { createUserWithEmailAndPassword, getAuth, initializeAuth, inMemoryPersistence, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js';
 import {
-  collection, doc, getDoc, getDocs, getFirestore, query, runTransaction, where, writeBatch
+  collection, doc, getDoc, getDocs, getFirestore, query, runTransaction, updateDoc, where, writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js';
 
 const roles = ['lawyer', 'prosecutor', 'judge'];
@@ -19,7 +19,7 @@ export function connect(config) {
   async function profile(account) {
     if (!account) throw denied('Χρειάζεται σύνδεση.', 401);
     const ref = await getDoc(doc(profiles, account.uid));
-    if (!ref.exists() || !roles.includes(ref.data().role)) throw denied('Ο λογαριασμός δεν έχει πρόσβαση στο προσωπικό.', 403);
+    if (!ref.exists() || !roles.includes(ref.data().role) || ref.data().disabled === true) throw denied('Ο λογαριασμός δεν έχει πρόσβαση στο προσωπικό.', 403);
     return { id: account.uid, ...ref.data() };
   }
 
@@ -37,6 +37,39 @@ export function connect(config) {
   }
 
   const summarize = ({ id, title, defendant, status }) => ({ id, title, defendant, status });
+
+  async function createStaff(payload) {
+    const username = payload.username.trim();
+    const email = payload.email.trim();
+    const { password, role } = payload;
+    if (!username || username.length > 100 || !roles.includes(role) || password.length < 8) {
+      throw new Error('Συμπλήρωσε όνομα έως 100 χαρακτήρες, έγκυρο ρόλο και κωδικό τουλάχιστον 8 χαρακτήρων.');
+    }
+    const secondary = initializeApp(config, 'doj-provision-' + crypto.randomUUID());
+    try {
+      const secondaryAuth = initializeAuth(secondary, { persistence: inMemoryPersistence });
+      let credential;
+      try {
+        credential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      } catch (error) {
+        if (error.code !== 'auth/email-already-in-use') throw error;
+        try {
+          credential = await signInWithEmailAndPassword(secondaryAuth, email, password);
+        } catch {
+          throw new Error('Το email υπάρχει ήδη στο Firebase Authentication.');
+        }
+      }
+      await runTransaction(db, async (transaction) => {
+        const target = doc(profiles, credential.user.uid);
+        const current = await transaction.get(target);
+        if (current.exists()) throw new Error('Ο λογαριασμός υπάρχει ήδη στο προσωπικό.');
+        transaction.set(target, { username, role, disabled: false });
+      });
+    } finally {
+      await deleteApp(secondary);
+    }
+    return {};
+  }
 
   return async function request(path, payload) {
     if (path === 'public') return publicDocket();
@@ -56,9 +89,21 @@ export function connect(config) {
     if (path === 'logout') { await signOut(auth); return {}; }
     const user = await profile(auth.currentUser);
     if (path === 'me') return user;
+    if (path.startsWith('staff')) {
+      if (user.admin !== true) throw denied('Απαιτείται πρόσβαση διαχειριστή.', 403);
+      if (path === 'staff' && !payload) {
+        return (await getDocs(profiles)).docs.map((item) => ({ id: item.id, ...item.data() }))
+          .sort((a, b) => a.username.localeCompare(b.username, 'el'));
+      }
+      if (path === 'staff') return createStaff(payload);
+      const id = path.slice('staff/'.length);
+      if (!roles.includes(payload.role) || typeof payload.disabled !== 'boolean') throw new Error('Μη έγκυρες ρυθμίσεις προσωπικού.');
+      await updateDoc(doc(profiles, id), { role: payload.role, disabled: payload.disabled });
+      return {};
+    }
     if (path === 'assignable') {
       const staff = await getDocs(query(profiles, where('role', 'in', ['lawyer', 'judge'])));
-      return staff.docs.map((item) => ({ id: item.id, ...item.data() }));
+      return staff.docs.map((item) => ({ id: item.id, ...item.data() })).filter((account) => !account.disabled);
     }
     if (path === 'cases' && !payload) {
       const result = await getDocs(query(cases, where(user.role, '==', user.id)));
