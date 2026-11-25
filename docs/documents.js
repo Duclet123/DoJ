@@ -11,6 +11,23 @@ const templates = {
   letter: ['Επιστολή δικηγόρου', 'Προς: \n\nΘέμα: \n\nΚείμενο επιστολής\n\nΜε εκτίμηση,']
 };
 
+const roleTemplates = {
+  lawyer: {
+    suppress: ['Αίτημα αποκλεισμού αποδεικτικού', 'Υπόθεση: \nExhibit: \n\nΑίτημα\n\nΓεγονότα\n\nΣκεπτικό\n\nΗμερομηνία: '],
+    disclosure: ['Αίτημα γνωστοποίησης υλικού', 'Υπόθεση: \n\nΥλικό που ζητείται\n\nΛόγος και συνάφεια\n\nΗμερομηνία: ']
+  },
+  prosecutor: {
+    indictment: ['Κατηγορητήριο', 'Υπόθεση: \nΚατηγορούμενος: \n\nΚατηγορίες ανά άρθρο\n\nΠραγματικά περιστατικά\n\nExhibits και μάρτυρες\n\nΗμερομηνία: '],
+    exhibitList: ['Κατάλογος exhibits', 'Υπόθεση: \n\nExhibit / περιγραφή / σχετική κατηγορία\n\nΚαταχωρίσεις\n\nΗμερομηνία: '],
+    disclosureNotice: ['Γνωστοποίηση αποδεικτικού υλικού', 'Υπόθεση: \nΠρος: \n\nΥλικό που διαβιβάζεται\n\nΤρόπος πρόσβασης\n\nΗμερομηνία: ']
+  },
+  judge: {
+    hearing: ['Ορισμός ακρόασης', 'Υπόθεση: \nΗμερομηνία και ώρα: \nΑίθουσα: \n\nΑντικείμενο ακρόασης\n\nΟδηγίες προς τα μέρη'],
+    order: ['Δικαστική διάταξη', 'Υπόθεση: \n\nΑίτημα προς κρίση\n\nΣκεπτικό\n\nΔιατακτικό\n\nΗμερομηνία: '],
+    judgment: ['Δικαστική απόφαση', 'Υπόθεση: \nΚατηγορούμενος: \n\nΙστορικό\n\nΚρίση ανά κατηγορία\n\nΣκεπτικό\n\nΔιατακτικό\n\nΗμερομηνία: ']
+  }
+};
+
 const width = 1240;
 const height = 1754;
 const margin = 108;
@@ -169,14 +186,17 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   editor.append(node('h2', selected ? 'Επεξεργασία εγγράφου' : 'Δημιουργία εγγράφου'));
   const form = node('form');
   const template = node('select', null, { 'aria-label': 'Πρότυπο' });
-  for (const [id, [label]] of Object.entries(templates)) template.append(node('option', label, { value: id }));
+  const availableTemplates = user.role === 'lawyer'
+    ? { ...templates, ...roleTemplates.lawyer }
+    : { blank: templates.blank, ...roleTemplates[user.role] };
+  for (const [id, [label]] of Object.entries(availableTemplates)) template.append(node('option', label, { value: id }));
   const title = node('input', null, { maxlength: '150', required: '' });
   const body = node('textarea', null, { maxlength: '12000', rows: '13', required: '' });
   const fields = [['Τίτλος', title], ['Κείμενο', body]];
   if (!selected) {
     fields.unshift(['Πρότυπο', template]);
     template.addEventListener('change', () => {
-      const [name, text] = templates[template.value];
+      const [name, text] = availableTemplates[template.value];
       if ((title.value || body.value) && !window.confirm('Να αντικατασταστεί το κείμενο με το επιλεγμένο πρότυπο;')) {
         template.value = template.dataset.previous || 'blank';
         return;

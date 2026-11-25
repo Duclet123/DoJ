@@ -120,7 +120,8 @@ async function publicSite(fragment) {
     ['Ποινικός Κώδικας', 'Δημοσιευμένα άρθρα', '#penal-code'],
     ['Ακροάσεις', 'Πρόγραμμα δικαστηρίου', '#hearings'],
     ['Αποφάσεις', 'Δημόσιες δικαστικές αποφάσεις', '#decisions'],
-    ['Legal Framework', 'Κανόνες και διαδικασίες RP', '#legal-framework']
+    ['Legal Framework', 'Τροπολογίες, αποφάσεις και διαδικασίες RP', '#legal-framework'],
+    ['Αιτήσεις ένταξης', 'Δικηγόροι, εισαγγελείς και δικαστές', '#applications']
   ]) {
     const item = link('', href);
     item.append(node('strong', title), node('small', detail));
@@ -129,6 +130,13 @@ async function publicSite(fragment) {
   content.append(services);
   const introduction = section(content, 'Το Department of Justice');
   introduction.append(node('p', 'Η δημόσια πύλη του DoJ για το San Andreas RP. Εδώ βρίσκεις τη δικαστική ομάδα, το πρόγραμμα ακροάσεων και τα δημοσιευμένα κείμενα. Αν ενδιαφέρεσαι να ενταχθείς στο προσωπικό, μπορείς να υποβάλεις αίτηση.'));
+  const roles = node('div', null, { class: 'cards' });
+  roles.append(
+    card('Δικηγόροι', 'Υπεράσπιση', 'Εκπροσωπούν χαρακτήρες, καταθέτουν αιτήματα και εξετάζουν στοιχεία της υπόθεσης.'),
+    card('Εισαγγελείς', 'Κατηγορούσα αρχή', 'Παρουσιάζουν τις κατηγορίες ανά άρθρο και συνδέουν τα σχετικά exhibits.'),
+    card('Δικαστές', 'Δικαστήριο', 'Ορίζουν ακροάσεις, καταγράφουν ετυμηγορίες και δημοσιεύουν αποφάσεις.')
+  );
+  introduction.append(roles);
   const roster = section(content, 'Roster', 'roster');
   const rosterGrid = node('div', null, { class: 'cards' });
   roster.append(rosterGrid);
@@ -173,36 +181,66 @@ function legalFramework() {
   const procedures = section(shell, 'Δικαστική διαδικασία');
   procedures.append(node('p', 'Ο φάκελος υπόθεσης συγκεντρώνει κατηγορητήριο, κατηγορίες ανά άρθρο, exhibits, ενόρκους και αποφάσεις. Το δημόσιο πρόγραμμα εμφανίζει τις δημοσιευμένες ακροάσεις.'));
   procedures.append(link('Πρόγραμμα ακροάσεων', '#hearings'), node('br'), link('Δημοσιευμένες αποφάσεις', '#decisions'));
+  const search = node('input', null, { type: 'search', placeholder: 'Π.χ. Terry, 4η Τροπολογία ή probable cause', 'aria-label': 'Αναζήτηση στο Legal Framework' });
+  const filters = node('div', null, { class: 'filters' });
+  const category = node('select', null, { 'aria-label': 'Τύπος πηγής' });
+  for (const [value, label] of [['all', 'Όλες οι πηγές'], ['amendments', 'Τροπολογίες'], ['cases', 'Νομολογία']]) {
+    category.append(node('option', label, { value }));
+  }
+  filters.append(search, category);
+  const status = node('p', '', { role: 'status' });
+  shell.append(filters, status);
   const amendments = section(shell, 'Συνταγματικές τροπολογίες');
   const cases = section(shell, 'Βασική νομολογία');
   const bill = 'https://www.archives.gov/founding-docs/bill-of-rights-transcript';
   const opinion = (volume, page) => 'https://supreme.justia.com/cases/federal/us/' + volume + '/' + page + '/';
   const sources = [
-    [amendments, [
+    ['amendments', amendments, [
+      ['1η Τροπολογία', 'Ελευθερία έκφρασης και συνάθροισης', 'Προστατεύει την ελευθερία λόγου και Τύπου, την ειρηνική συνάθροιση και το δικαίωμα υποβολής αιτημάτων προς την κυβέρνηση.', bill],
       ['4η Τροπολογία', 'Έρευνες και κατασχέσεις', 'Προστατεύει από αδικαιολόγητες έρευνες και κατασχέσεις. Τα εντάλματα απαιτούν probable cause και συγκεκριμένη περιγραφή του τόπου και των προσώπων ή πραγμάτων που αφορά το ένταλμα.', bill],
       ['5η Τροπολογία', 'Αυτοενοχοποίηση και double jeopardy', 'Προστατεύει από εξαναγκασμό σε αυτοενοχοποίηση σε ποινική υπόθεση και από δεύτερη δίωξη για το ίδιο αδίκημα μετά την ενεργοποίηση της σχετικής προστασίας.', bill],
       ['6η Τροπολογία', 'Δικαιώματα στη δίκη', 'Προβλέπει, μεταξύ άλλων, ταχεία και δημόσια δίκη, ενημέρωση για την κατηγορία, συνδρομή δικηγόρου και δικαίωμα εξέτασης των μαρτύρων κατηγορίας.', bill],
       ['8η Τροπολογία', 'Εγγύηση και ποινές', 'Απαγορεύει την υπερβολική εγγύηση, τα υπερβολικά πρόστιμα και τις σκληρές και ασυνήθιστες ποινές.', bill],
       ['14η Τροπολογία', 'Due process και ίση προστασία', 'Δεσμεύει τις πολιτείες ως προς τη νόμιμη διαδικασία και την ίση προστασία των νόμων.', 'https://www.archives.gov/founding-docs/amendments-11-27#amendment-xiv']
     ]],
-    [cases, [
+    ['cases', cases, [
       ['Terry v. Ohio', '392 U.S. 1 (1968) · Stop and frisk', 'Η προσωρινή στάση απαιτεί εύλογη υποψία εγκληματικής δραστηριότητας. Ο περιορισμένος εξωτερικός έλεγχος για όπλα απαιτεί επιπλέον εύλογη πεποίθηση ότι το άτομο είναι οπλισμένο και επικίνδυνο.', opinion(392, 1)],
       ['Miranda v. Arizona', '384 U.S. 436 (1966) · Ανάκριση υπό κράτηση', 'Πριν από ανάκριση υπό κράτηση, ο ύποπτος πρέπει κατά κανόνα να ενημερωθεί για το δικαίωμα σιωπής και συνδρομής δικηγόρου, ώστε οι δηλώσεις του να μπορούν να χρησιμοποιηθούν στην κύρια απόδειξη της κατηγορούσας αρχής.', opinion(384, 436)],
       ['Mapp v. Ohio', '367 U.S. 643 (1961) · Αποκλεισμός αποδεικτικών', 'Εφάρμοσε στις πολιτειακές ποινικές δίκες τον κανόνα αποκλεισμού αποδεικτικών που αποκτήθηκαν κατά παράβαση της 4ης Τροπολογίας, με τις εξαιρέσεις που αναγνωρίζει η μεταγενέστερη νομολογία.', opinion(367, 643)],
       ['Gideon v. Wainwright', '372 U.S. 335 (1963) · Διορισμός συνηγόρου', 'Οι πολιτείες οφείλουν να παρέχουν συνήγορο σε κατηγορούμενους για κακούργημα που αδυνατούν να πληρώσουν δικηγόρο.', opinion(372, 335)],
       ['Brady v. Maryland', '373 U.S. 83 (1963) · Ευνοϊκά αποδεικτικά', 'Η απόκρυψη από την κατηγορούσα αρχή ευνοϊκού αποδεικτικού υλικού για τον κατηγορούμενο παραβιάζει το due process όταν το υλικό είναι ουσιώδες ως προς την ενοχή ή την ποινή.', opinion(373, 83)],
-      ['Crawford v. Washington', '541 U.S. 36 (2004) · Εξέταση μαρτύρων', 'Κατά κανόνα, μαρτυρικές δηλώσεις προσώπου που δεν καταθέτει στη δίκη μπορούν να χρησιμοποιηθούν σε βάρος του κατηγορουμένου μόνο εάν το πρόσωπο δεν είναι διαθέσιμο και είχε δοθεί προηγουμένως ευκαιρία αντεξέτασης.', opinion(541, 36)]
+      ['Crawford v. Washington', '541 U.S. 36 (2004) · Εξέταση μαρτύρων', 'Κατά κανόνα, μαρτυρικές δηλώσεις προσώπου που δεν καταθέτει στη δίκη μπορούν να χρησιμοποιηθούν σε βάρος του κατηγορουμένου μόνο εάν το πρόσωπο δεν είναι διαθέσιμο και είχε δοθεί προηγουμένως ευκαιρία αντεξέτασης.', opinion(541, 36)],
+      ['Illinois v. Gates', '462 U.S. 213 (1983) · Probable cause', 'Για ένταλμα έρευνας, το probable cause κρίνεται από το σύνολο των περιστάσεων. Η αξιοπιστία και η βάση γνώσης της πηγής συνεκτιμώνται.', opinion(462, 213)],
+      ['Riley v. California', '573 U.S. 373 (2014) · Έρευνα κινητού', 'Η νόμιμη σύλληψη κατά κανόνα δεν αρκεί για έρευνα των ψηφιακών δεδομένων κινητού. Συνήθως απαιτείται ένταλμα, με δυνατότητα εξαίρεσης σε επείγουσες περιστάσεις.', opinion(573, 373)],
+      ['Rhode Island v. Innis', '446 U.S. 291 (1980) · Τι θεωρείται ανάκριση', 'Για τη Miranda, ανάκριση μπορεί να είναι και λόγια ή πράξεις που η αστυνομία θα έπρεπε να γνωρίζει ότι είναι ευλόγως πιθανό να προκαλέσουν ενοχοποιητική απάντηση.', opinion(446, 291)],
+      ['Blockburger v. United States', '284 U.S. 299 (1932) · Double jeopardy', 'Όταν η ίδια πράξη εμπίπτει σε δύο διατάξεις, το τεστ εξετάζει αν κάθε διάταξη απαιτεί απόδειξη ενός στοιχείου που η άλλη δεν απαιτεί.', opinion(284, 299)],
+      ['In re Winship', '397 U.S. 358 (1970) · Εύλογη αμφιβολία', 'Το due process απαιτεί απόδειξη πέρα από εύλογη αμφιβολία για κάθε πραγματικό στοιχείο αναγκαίο για τη στοιχειοθέτηση του αδικήματος.', opinion(397, 358)],
+      ['Giglio v. United States', '405 U.S. 150 (1972) · Αξιοπιστία μάρτυρα', 'Ουσιώδη στοιχεία που θίγουν την αξιοπιστία μάρτυρα κατηγορίας, όπως υπόσχεση μη δίωξης, εμπίπτουν στην υποχρέωση γνωστοποίησης ευνοϊκού υλικού.', opinion(405, 150)],
+      ['Barker v. Wingo', '407 U.S. 514 (1972) · Ταχεία δίκη', 'Για το δικαίωμα ταχείας δίκης συνεκτιμώνται η διάρκεια και ο λόγος καθυστέρησης, η επίκληση του δικαιώματος και η βλάβη του κατηγορουμένου.', opinion(407, 514)]
     ]]
   ];
-  for (const [group, entries] of sources) {
-    const grid = node('div', null, { class: 'cards' });
-    for (const [title, category, summary, url] of entries) {
-      const item = card(title, category, summary);
-      item.append(node('a', 'Πλήρες κείμενο', { href: url, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Πλήρες κείμενο ' + title }));
-      grid.append(item);
+  const normalize = (value) => value.toLocaleLowerCase('el').normalize('NFD').replace(/\p{M}/gu, '').replaceAll('ς', 'σ');
+  const update = () => {
+    const query = normalize(search.value.trim());
+    let count = 0;
+    for (const [key, group, entries] of sources) {
+      const grid = group.querySelector('.cards');
+      const matches = (category.value === 'all' || category.value === key)
+        ? entries.filter((entry) => normalize(entry.slice(0, 3).join(' ')).includes(query)) : [];
+      group.hidden = !matches.length;
+      count += matches.length;
+      grid.replaceChildren(...matches.map(([title, topic, summary, url]) => {
+        const item = card(title, topic, summary);
+        item.append(node('a', 'Πλήρες κείμενο', { href: url, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Πλήρες κείμενο ' + title }));
+        return item;
+      }));
     }
-    group.append(grid);
-  }
+    status.textContent = count ? count + ' πηγές' : 'Δεν βρέθηκαν πηγές.';
+  };
+  for (const [, group] of sources) group.append(node('div', null, { class: 'cards' }));
+  search.addEventListener('input', update);
+  category.addEventListener('change', update);
+  update();
   return { shell };
 }
 
@@ -544,7 +582,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   }
   shell.append(bar);
   if (documentRoute || signatureRoute) {
-    const module = await import(new URL('documents.js?v=workspace-documents-2', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=doj-content-1', firebaseModuleUrl).href);
     if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
     return { shell };
