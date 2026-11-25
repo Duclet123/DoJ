@@ -284,3 +284,10 @@ form[hidden]{display:none}
 @media(max-width:710px){.office-agenda .office-dashboard{grid-template-columns:1fr}}
 @media(max-width:410px){.agenda-case{grid-template-columns:1fr}.agenda-state{justify-self:start}}
 @media print{.office-agenda .workspace-bar{display:none!important}}
+
+.document-list{display:grid;gap:4px}
+.document-list a{display:block;padding:8px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.document-list a[aria-current="page"]{background:var(--wash);color:var(--accent-strong);font-weight:700}
+.document-list small{display:block;font-weight:400}
+.paper-editor>label{margin-bottom:12px}
+.paper-editor>label select{max-width:320px}

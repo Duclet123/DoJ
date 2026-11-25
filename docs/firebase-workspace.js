@@ -133,11 +133,12 @@ export function connect(config) {
       if (signature && signature.length > 100) throw new Error('Η υπογραφή επιτρέπει έως 100 χαρακτήρες.');
       const data = { title, body, updated: serverTimestamp() };
       if (signature) data.signature = signature;
+      if (payload.category) data.category = payload.category;
       if (path === 'documents') {
         const batch = writeBatch(db);
         batch.set(ref, data);
         await batch.commit();
-      } else await updateDoc(ref, signature ? data : { ...data, signature: deleteField() });
+      } else await updateDoc(ref, { ...data, signature: signature || deleteField(), category: payload.category || deleteField() });
       return { id: ref.id };
     }
 

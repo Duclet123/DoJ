@@ -1,6 +1,6 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
-const firebaseModuleUrl = new URL('firebase-workspace.js?v=office-profile-1', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js?v=document-types-1', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 let connection;
@@ -621,7 +621,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   }
   shell.append(bar);
   if (documentRoute || signatureRoute || settingsRoute) {
-    const module = await import(new URL('documents.js?v=role-emblems-2', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=document-types-1', firebaseModuleUrl).href);
     if (settingsRoute) module.settingsPanel(shell, user, node);
     else if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);

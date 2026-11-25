@@ -28,6 +28,18 @@ const roleTemplates = {
   }
 };
 
+const categories = {
+  motion: 'Αιτήσεις', appearance: 'Εκπροσώπηση', letter: 'Αλληλογραφία',
+  evidence: 'Αποδεικτικά', indictment: 'Κατηγορητήρια', hearing: 'Ακροάσεις',
+  decision: 'Διατάξεις και αποφάσεις', other: 'Λοιπά'
+};
+const templateCategories = {
+  motion: 'motion', suppress: 'motion', disclosure: 'motion', appearance: 'appearance',
+  letter: 'letter', indictment: 'indictment', exhibitList: 'evidence', disclosureNotice: 'evidence',
+  hearing: 'hearing', order: 'decision', judgment: 'decision'
+};
+const categoryOf = (item) => Object.hasOwn(categories, item?.category) ? item.category : '';
+
 const width = 1240;
 const height = 1754;
 const margin = 108;
@@ -229,12 +241,28 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   list.append(node('h1', 'Τα έγγραφά μου'));
   const newLink = node('a', 'Νέο έγγραφο', { href: '#workspace/documents', class: 'button' });
   list.append(newLink);
-  if (!records.length) list.append(node('p', 'Δεν έχεις αποθηκευμένα έγγραφα.'));
-  for (const item of records) {
-    const link = node('a', item.title, { href: '#workspace/documents/' + item.id });
-    if (selected?.id === item.id) link.setAttribute('aria-current', 'page');
-    list.append(link);
+  const search = node('input', null, { type: 'search', placeholder: 'Αναζήτηση τίτλου', 'aria-label': 'Αναζήτηση τίτλου' });
+  const filter = node('select', null, { 'aria-label': 'Φίλτρο κατηγορίας' });
+  for (const [value, label] of [['all', 'Όλες οι κατηγορίες'], ...Object.entries(categories), ['', 'Χωρίς κατηγορία']]) {
+    filter.append(node('option', label, { value }));
   }
+  const results = node('div', null, { class: 'document-list' });
+  function showDocuments() {
+    const query = search.value.trim().toLocaleLowerCase('el');
+    const matches = records.filter((item) => (filter.value === 'all' || categoryOf(item) === filter.value) &&
+      item.title.toLocaleLowerCase('el').includes(query));
+    results.replaceChildren(...matches.map((item) => {
+      const entry = node('a', item.title, { href: '#workspace/documents/' + item.id });
+      entry.append(node('small', categories[categoryOf(item)] || 'Χωρίς κατηγορία'));
+      if (selected?.id === item.id) entry.setAttribute('aria-current', 'page');
+      return entry;
+    }));
+    if (!matches.length) results.append(node('p', records.length ? 'Δεν βρέθηκαν έγγραφα.' : 'Δεν έχεις αποθηκευμένα έγγραφα.'));
+  }
+  search.addEventListener('input', showDocuments);
+  filter.addEventListener('change', showDocuments);
+  list.append(search, filter, results);
+  showDocuments();
 
   const editor = node('section', null, { class: 'document-box' });
   const heading = node('h2', selected ? 'Επεξεργασία εγγράφου' : 'Δημιουργία εγγράφου');
@@ -263,12 +291,19 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   letterhead.append(emblem(node, user.role),
     node('strong', office[user.role] || 'Department of Justice'), node('small', user.username));
   paper.append(letterhead, title, body, signatureLine);
-  form.append(paper, insertSignature);
+  const label = node('label', 'Κατηγορία εγγράφου');
+  const category = node('select');
+  for (const [value, title] of [['', 'Χωρίς κατηγορία'], ...Object.entries(categories)]) {
+    category.append(node('option', title, { value }));
+  }
+  category.value = categoryOf(selected);
+  label.append(category);
+  form.append(label, paper, insertSignature);
   const gallery = node('div', null, { class: 'template-gallery' });
   const work = node('div', null, { class: 'document-editing' });
   let templateBase = { title: '', body: '' };
   function showGallery() {
-    if ((title.value !== templateBase.title || body.value !== templateBase.body || signature.value) &&
+    if ((title.value !== templateBase.title || body.value !== templateBase.body || signature.value || category.value !== templateBase.category) &&
       !window.confirm('Να επιστρέψεις στα πρότυπα; Οι μη αποθηκευμένες αλλαγές θα χαθούν.')) return;
     work.hidden = true;
     gallery.hidden = false;
@@ -292,7 +327,8 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
       if (id !== 'blank') thumbnail.append(node('b', name), node('small', text));
       button.append(thumbnail, node('span', name));
       button.addEventListener('click', () => {
-        templateBase = { title: id === 'blank' ? '' : name, body: text };
+        templateBase = { title: id === 'blank' ? '' : name, body: text, category: templateCategories[id] || '' };
+        category.value = templateBase.category;
         title.value = templateBase.title;
         body.value = templateBase.body;
         signature.value = '';
@@ -312,7 +348,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   const save = node('button', 'Αποθήκευση', { type: 'submit' });
   form.append(save, status);
   const snapshot = () => ({
-    title: title.value.trim(), body: body.value.trim(),
+    title: title.value.trim(), body: body.value.trim(), category: category.value,
     ...(signature.value.trim() ? { signature: signature.value.trim() } : {})
   });
   form.addEventListener('submit', async (event) => {
@@ -323,8 +359,9 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
       if (!data.title || !data.body) throw new Error('Συμπλήρωσε τίτλο και κείμενο.');
       const { id } = await api(selected ? 'documents/' + selected.id : 'documents', data);
       if (selected) {
-        const current = list.querySelector('[aria-current="page"]');
-        if (current) current.textContent = data.title;
+        Object.assign(selected, data);
+        if (filter.value !== 'all' && filter.value !== data.category) filter.value = data.category;
+        showDocuments();
         status.textContent = 'Το έγγραφο αποθηκεύτηκε.';
       } else window.location.hash = '#workspace/documents/' + id;
     } catch (error) {
