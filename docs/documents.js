@@ -37,7 +37,7 @@ const linesPerPage = 31;
 
 function logo(ctx) {
   ctx.save();
-  ctx.translate(width / 2, 128);
+  ctx.translate(margin + 49, 192);
   ctx.strokeStyle = '#ad8545';
   ctx.lineWidth = 4;
   ctx.beginPath();
@@ -105,6 +105,14 @@ function pages(document, author) {
     ctx.font = '29px Georgia';
     lines.slice(index * linesPerPage, (index + 1) * linesPerPage)
       .forEach((line, row) => ctx.fillText(line, margin, bodyTop + row * lineHeight));
+    if (document.signature && index === count - 1) {
+      ctx.textAlign = 'right';
+      ctx.font = 'italic 36px Georgia';
+      ctx.fillText(document.signature, width - margin, height - 115, 420);
+      ctx.fillStyle = '#ad8545';
+      ctx.fillRect(width - margin - 420, height - 103, 420, 2);
+      ctx.fillStyle = '#172435';
+    }
     ctx.textAlign = 'center';
     ctx.font = '20px Georgia';
     ctx.fillText((index + 1) + ' / ' + count, width / 2, height - 65);
@@ -167,6 +175,40 @@ function outputs(parent, getPages, getName, node) {
   parent.append(bar, downloads);
 }
 
+function signaturePreference(user) {
+  try {
+    return localStorage.getItem('doj.signature.' + user.id) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function settingsPanel(parent, user, node) {
+  const box = node('section', null, { class: 'document-box' });
+  box.append(node('h1', 'Settings'), node('h2', 'Προεπιλεγμένη υπογραφή'));
+  const form = node('form');
+  const label = node('label', 'Κείμενο υπογραφής');
+  const input = node('input', null, { maxlength: '100', placeholder: user.username });
+  input.value = signaturePreference(user);
+  label.append(input);
+  const status = node('p', '', { role: 'status' });
+  form.append(label, node('small', 'Αποθηκεύεται σε αυτή τη συσκευή. Μπορείς να την εισάγεις σε όποιο έγγραφο θέλεις.'),
+    node('button', 'Αποθήκευση', { type: 'submit' }), status);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    try {
+      const value = input.value.trim();
+      if (value) localStorage.setItem('doj.signature.' + user.id, value);
+      else localStorage.removeItem('doj.signature.' + user.id);
+      status.textContent = value ? 'Η προεπιλεγμένη υπογραφή αποθηκεύτηκε.' : 'Η προεπιλεγμένη υπογραφή αφαιρέθηκε.';
+    } catch {
+      status.textContent = 'Η αποθήκευση ρυθμίσεων δεν είναι διαθέσιμη σε αυτόν τον browser.';
+    }
+  });
+  box.append(form);
+  parent.append(box);
+}
+
 export async function documentsPanel(parent, user, api, node, selectedId) {
   const records = await api('documents');
   const selected = records.find((item) => item.id === selectedId);
@@ -193,18 +235,28 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   const body = node('textarea', null, { maxlength: '12000', rows: '16', required: '', placeholder: 'Γράψε το κείμενο του εγγράφου…', 'aria-label': 'Κείμενο εγγράφου' });
   title.value = selected?.title || '';
   body.value = selected?.body || '';
+  const signature = node('input', null, { maxlength: '100', placeholder: 'Προαιρετική υπογραφή', 'aria-label': 'Υπογραφή εγγράφου' });
+  signature.value = selected?.signature || '';
+  const signatureLine = node('div', null, { class: 'document-signoff' });
+  signatureLine.append(signature);
+  const insertSignature = node('button', 'Εισαγωγή υπογραφής', { type: 'button', class: 'secondary' });
+  insertSignature.addEventListener('click', () => {
+    signature.value = signaturePreference(user) || user.username;
+    signature.dispatchEvent(new Event('input', { bubbles: true }));
+    signature.focus();
+  });
 
   const paper = node('div', null, { class: 'document-paper' });
   const letterhead = node('div', null, { class: 'document-letterhead' });
   letterhead.append(node('span', 'SA', { class: 'document-seal', 'aria-hidden': 'true' }),
     node('strong', office[user.role] || 'Department of Justice'), node('small', user.username));
-  paper.append(letterhead, title, body);
-  form.append(paper);
+  paper.append(letterhead, title, body, signatureLine);
+  form.append(paper, insertSignature);
   const gallery = node('div', null, { class: 'template-gallery' });
   const work = node('div', null, { class: 'document-editing' });
   let templateBase = { title: '', body: '' };
   function showGallery() {
-    if ((title.value !== templateBase.title || body.value !== templateBase.body) &&
+    if ((title.value !== templateBase.title || body.value !== templateBase.body || signature.value) &&
       !window.confirm('Να επιστρέψεις στα πρότυπα; Οι μη αποθηκευμένες αλλαγές θα χαθούν.')) return;
     work.hidden = true;
     gallery.hidden = false;
@@ -231,6 +283,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
         templateBase = { title: id === 'blank' ? '' : name, body: text };
         title.value = templateBase.title;
         body.value = templateBase.body;
+        signature.value = '';
         gallery.hidden = true;
         work.hidden = false;
         heading.textContent = id === 'blank' ? 'Κενό έγγραφο' : name;
@@ -246,7 +299,10 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   const status = node('p', '', { role: 'status' });
   const save = node('button', 'Αποθήκευση', { type: 'submit' });
   form.append(save, status);
-  const snapshot = () => ({ title: title.value.trim(), body: body.value.trim() });
+  const snapshot = () => ({
+    title: title.value.trim(), body: body.value.trim(),
+    ...(signature.value.trim() ? { signature: signature.value.trim() } : {})
+  });
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     save.disabled = true;
@@ -277,7 +333,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   const drawPreview = () => {
     if (!sample.open) return;
     const data = snapshot();
-    const sheets = pages({ title: data.title || 'Τίτλος εγγράφου', body: data.body }, user);
+    const sheets = pages({ ...data, title: data.title || 'Τίτλος εγγράφου' }, user);
     activePage = Math.max(0, Math.min(activePage, sheets.count - 1));
     preview.replaceChildren(sheets.sheet(activePage));
     controls.hidden = sheets.count <= 1;

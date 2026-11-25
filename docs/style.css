@@ -229,3 +229,16 @@ form[hidden]{display:none}
 .document-paper input,.document-paper textarea{border:0;background:white;padding:5px;color:var(--ink);font-family:var(--heading)}
 .document-paper input{text-align:center;font-size:clamp(20px,3.4vw,30px);font-weight:700;margin-bottom:10px}
 .document-paper textarea{line-height:1.6;resize:vertical}
+
+.document-letterhead{position:relative;padding-inline:52px}
+.document-letterhead .document-seal{position:absolute;left:0;top:0}
+.document-signoff{width:min(100%,275px);margin:20px 0 0 auto;border-bottom:1px solid #ad8545}
+.document-signoff input{text-align:right;font-style:italic;margin:0}
+.account-details summary.button{display:flex;align-items:center;gap:8px;max-width:clamp(125px,30vw,225px);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:5px 8px}
+.account-details summary.button:hover{background:var(--wash);color:var(--ink)}
+.account-avatar{display:grid;place-items:center;flex:none;width:29px;aspect-ratio:1;border-radius:50%;background:var(--accent);color:#fff;font-size:.7rem}
+.account-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.account-caret{flex:none;color:var(--accent)}
+.account-popover a{display:block;justify-self:stretch;padding:7px;border-top:1px solid var(--line);text-decoration:none}
+.account-popover a:hover{background:var(--wash)}
+@media(max-width:540px){.document-letterhead{padding-inline:41px}.document-letterhead .document-seal{width:33px}}

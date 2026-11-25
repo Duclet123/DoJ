@@ -1,6 +1,6 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
-const firebaseModuleUrl = new URL('firebase-workspace.js?v=portal-services-1', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js?v=office-profile-1', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 let connection;
@@ -435,14 +435,19 @@ const accountMenu = accountLink.parentElement;
 const sessionDetails = node('details', null, { class: 'account-details', hidden: '' });
 const sessionSummary = node('summary', '', { class: 'button' });
 const sessionContent = node('div', null, { class: 'account-popover' });
-const sessionWorkspace = link('Workspace', '#workspace');
+const sessionAvatar = node('span', '', { class: 'account-avatar', 'aria-hidden': 'true' });
+const sessionLabel = node('span', '', { class: 'account-label' });
+const sessionCaret = node('span', '⌄', { class: 'account-caret', 'aria-hidden': 'true' });
+sessionSummary.append(sessionAvatar, sessionLabel, sessionCaret);
+const sessionOffice = link('Office', '#workspace');
+const sessionSettings = link('Settings', '#workspace/settings');
 const sessionName = node('strong');
 const sessionRole = node('small');
 const sessionLogout = node('button', 'Αποσύνδεση', { type: 'button', class: 'secondary' });
 const sessionError = node('small', '', { role: 'alert' });
-sessionContent.append(sessionName, sessionRole, sessionWorkspace, sessionLogout, sessionError);
+sessionContent.append(sessionName, sessionRole, sessionOffice, sessionSettings, sessionLogout, sessionError);
 sessionDetails.append(sessionSummary, sessionContent);
-sessionWorkspace.addEventListener('click', () => { sessionDetails.open = false; });
+for (const item of [sessionOffice, sessionSettings]) item.addEventListener('click', () => { sessionDetails.open = false; });
 document.addEventListener('click', (event) => {
   if (sessionDetails.open && !accountMenu.contains(event.target)) sessionDetails.open = false;
 });
@@ -458,7 +463,8 @@ function showAccount(user) {
   accountLink.hidden = Boolean(user);
   sessionDetails.hidden = !user;
   if (!user) sessionDetails.open = false;
-  sessionSummary.textContent = user?.username || '';
+  sessionLabel.textContent = user?.username || '';
+  sessionAvatar.textContent = user?.username.trim().split(/\s+/u).slice(0, 2).map((part) => [...part][0]).join('').toUpperCase() || '';
   sessionName.textContent = user?.username || '';
   sessionRole.textContent = user ? [roleNames[user.role], user.email].filter(Boolean).join(' · ') : '';
   sessionError.textContent = '';
@@ -562,7 +568,7 @@ function caseTabs(parent, id, tabs) {
   parent.append(bar, ...rows.map((row) => row.panel));
 }
 
-async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRoute) {
+async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
   try {
@@ -597,7 +603,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   showAccount(user);
   shell.classList.add('workspace-editorial');
 
-  const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Workspace' });
+  const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Office' });
   bar.append(link('Οι υποθέσεις μου', '#workspace'));
   bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
   bar.append(link('Υπογραφή εγγράφου', '#workspace/signature'));
@@ -609,9 +615,10 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     }
   }
   shell.append(bar);
-  if (documentRoute || signatureRoute) {
-    const module = await import(new URL('documents.js?v=document-gallery-1', firebaseModuleUrl).href);
-    if (signatureRoute) module.signaturePanel(shell, node);
+  if (documentRoute || signatureRoute || settingsRoute) {
+    const module = await import(new URL('documents.js?v=office-profile-1', firebaseModuleUrl).href);
+    if (settingsRoute) module.settingsPanel(shell, user, node);
+    else if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
     return { shell };
   }
@@ -712,7 +719,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     return { shell };
   }
 
-  shell.append(node('h1', 'Workspace · ' + roleNames[user.role]));
+  shell.append(node('h1', 'Office · ' + roleNames[user.role]));
   const dashboard = node('div', null, { class: 'workspace-grid' });
   shell.append(dashboard);
   const overview = section(dashboard, 'Οι υποθέσεις μου');
@@ -770,12 +777,13 @@ async function render(message) {
     const adminRoute = fragment === 'workspace/admin';
     const documentRoute = fragment.match(/^workspace\/documents(?:\/([A-Za-z0-9]{20}))?$/);
     const signatureRoute = fragment === 'workspace/signature';
-    const inWorkspace = loginRoute || adminRoute || match || documentRoute || signatureRoute;
+    const settingsRoute = fragment === 'workspace/settings';
+    const inWorkspace = loginRoute || adminRoute || match || documentRoute || signatureRoute || settingsRoute;
     if (!inWorkspace) {
       api('me').then((user) => { if (renderId === current) showAccount(user); })
         .catch(() => { if (renderId === current) showAccount(null); });
     }
-    const page = inWorkspace ? workspace(match?.[1], loginRoute, adminRoute, documentRoute, signatureRoute) :
+    const page = inWorkspace ? workspace(match?.[1], loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute) :
       fragment === 'penal-code' ? penalCode() : fragment === 'legal-framework' ? legalFramework() :
         fragment === 'applications' ? applicationsPage() : publicSite(fragment);
     const { shell, anchor, status } = await page;

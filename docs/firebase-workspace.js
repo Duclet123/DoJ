@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js';
 import { createUserWithEmailAndPassword, getAuth, initializeAuth, inMemoryPersistence, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js';
 import {
-  collection, doc, serverTimestamp, getDoc, getDocs, getFirestore, query, runTransaction, updateDoc, where, writeBatch
+  collection, doc, serverTimestamp, deleteField, getDoc, getDocs, getFirestore, query, runTransaction, updateDoc, where, writeBatch
 } from 'https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js';
 
 const roles = ['lawyer', 'prosecutor', 'judge'];
@@ -129,12 +129,15 @@ export function connect(config) {
       const body = payload.body.trim();
       if (!title || !body || title.length > 150 || body.length > 12000) throw new Error('Συμπλήρωσε τίτλο και κείμενο εντός των ορίων.');
       const ref = path === 'documents' ? doc(documents) : doc(documents, path.slice('documents/'.length));
+      const signature = payload.signature?.trim();
+      if (signature && signature.length > 100) throw new Error('Η υπογραφή επιτρέπει έως 100 χαρακτήρες.');
       const data = { title, body, updated: serverTimestamp() };
+      if (signature) data.signature = signature;
       if (path === 'documents') {
         const batch = writeBatch(db);
         batch.set(ref, data);
         await batch.commit();
-      } else await updateDoc(ref, data);
+      } else await updateDoc(ref, signature ? data : { ...data, signature: deleteField() });
       return { id: ref.id };
     }
 

@@ -119,9 +119,10 @@ service cloud.firestore {
         }
         allow read: if ownDocuments();
         allow create, update: if ownDocuments()
-          && request.resource.data.keys().hasOnly(['title', 'body', 'updated'])
+          && request.resource.data.keys().hasOnly(['title', 'body', 'updated', 'signature'])
           && text(request.resource.data.title, 150)
           && text(request.resource.data.body, 12000)
+          && (!('signature' in request.resource.data) || text(request.resource.data.signature, 100))
           && request.resource.data.updated == request.time;
       }
 
