@@ -206,3 +206,8 @@ form[hidden]{display:none}
   .masthead .account-menu{grid-column:2;grid-row:1}
 }
 @media(max-width:540px){.public-services{grid-template-columns:1fr}}
+
+.legal-scenarios{display:flex;gap:8px;flex-wrap:wrap}
+.legal-scenarios button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+.document-tools[hidden]{display:none}
+.document-tools button:disabled{opacity:.55;cursor:default}

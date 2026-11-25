@@ -181,6 +181,33 @@ function legalFramework() {
   const procedures = section(shell, 'Δικαστική διαδικασία');
   procedures.append(node('p', 'Ο φάκελος υπόθεσης συγκεντρώνει κατηγορητήριο, κατηγορίες ανά άρθρο, exhibits, ενόρκους και αποφάσεις. Το δημόσιο πρόγραμμα εμφανίζει τις δημοσιευμένες ακροάσεις.'));
   procedures.append(link('Πρόγραμμα ακροάσεων', '#hearings'), node('br'), link('Δημοσιευμένες αποφάσεις', '#decisions'));
+  const scenarios = [
+    ['Όλες οι πηγές', '', []],
+    ['Στάση και frisk', 'Ποια περιστατικά στηρίζουν τη στάση και ποια δικαιολογούν έλεγχο για όπλα;', ['4η Τροπολογία', 'Terry v. Ohio']],
+    ['Έρευνα κινητού', 'Υπάρχει ένταλμα και τι ακριβώς καλύπτει η έρευνα των ψηφιακών δεδομένων;', ['4η Τροπολογία', 'Riley v. California', 'Illinois v. Gates', 'Mapp v. Ohio']],
+    ['Ανάκριση υπό κράτηση', 'Πότε άρχισε η κράτηση, τι ειπώθηκε πριν από τη δήλωση και δόθηκαν οι προειδοποιήσεις;', ['5η Τροπολογία', 'Miranda v. Arizona', 'Rhode Island v. Innis']],
+    ['Αποδεικτικά και μάρτυρες', 'Τι κοινοποιήθηκε στην υπεράσπιση και είχε ευκαιρία να εξετάσει τους μάρτυρες;', ['6η Τροπολογία', '14η Τροπολογία', 'Brady v. Maryland', 'Giglio v. United States', 'Crawford v. Washington']],
+    ['Πολλαπλές κατηγορίες', 'Ποια στοιχεία απαιτεί κάθε κατηγορία και ποια αποδεικτικά στηρίζουν το καθένα;', ['5η Τροπολογία', 'Blockburger v. United States', 'In re Winship']]
+  ];
+  const explorer = section(shell, 'Σενάρια RP');
+  const scenarioBar = node('div', null, { class: 'legal-scenarios', 'aria-label': 'Σενάρια RP', role: 'group' });
+  const prompt = node('p', '', { role: 'status', hidden: '' });
+  let currentScenario = 0;
+  const scenarioButtons = scenarios.map(([label], index) => {
+    const button = node('button', label, { type: 'button', class: 'secondary', 'aria-pressed': String(index === 0) });
+    button.addEventListener('click', () => {
+      currentScenario = index;
+      search.value = '';
+      category.value = 'all';
+      for (const [position, item] of scenarioButtons.entries()) item.setAttribute('aria-pressed', String(position === index));
+      prompt.textContent = scenarios[index][1];
+      prompt.hidden = !prompt.textContent;
+      update();
+    });
+    scenarioBar.append(button);
+    return button;
+  });
+  explorer.append(scenarioBar, prompt);
   const search = node('input', null, { type: 'search', placeholder: 'Π.χ. Terry, 4η Τροπολογία ή probable cause', 'aria-label': 'Αναζήτηση στο Legal Framework' });
   const filters = node('div', null, { class: 'filters' });
   const category = node('select', null, { 'aria-label': 'Τύπος πηγής' });
@@ -222,11 +249,12 @@ function legalFramework() {
   const normalize = (value) => value.toLocaleLowerCase('el').normalize('NFD').replace(/\p{M}/gu, '').replaceAll('ς', 'σ');
   const update = () => {
     const query = normalize(search.value.trim());
+    const related = scenarios[currentScenario][2];
     let count = 0;
     for (const [key, group, entries] of sources) {
       const grid = group.querySelector('.cards');
       const matches = (category.value === 'all' || category.value === key)
-        ? entries.filter((entry) => normalize(entry.slice(0, 3).join(' ')).includes(query)) : [];
+        ? entries.filter((entry) => (!related.length || related.includes(entry[0])) && normalize(entry.slice(0, 3).join(' ')).includes(query)) : [];
       group.hidden = !matches.length;
       count += matches.length;
       grid.replaceChildren(...matches.map(([title, topic, summary, url]) => {
@@ -235,7 +263,7 @@ function legalFramework() {
         return item;
       }));
     }
-    status.textContent = count ? count + ' πηγές' : 'Δεν βρέθηκαν πηγές.';
+    status.textContent = count === 1 ? '1 πηγή' : count ? count + ' πηγές' : 'Δεν βρέθηκαν πηγές.';
   };
   for (const [, group] of sources) group.append(node('div', null, { class: 'cards' }));
   search.addEventListener('input', update);
@@ -582,7 +610,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   }
   shell.append(bar);
   if (documentRoute || signatureRoute) {
-    const module = await import(new URL('documents.js?v=doj-content-1', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=doj-interactive-1', firebaseModuleUrl).href);
     if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
     return { shell };
