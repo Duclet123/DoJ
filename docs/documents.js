@@ -36,21 +36,26 @@ const bodyTop = 395;
 const linesPerPage = 31;
 
 const emblemUrl = new URL('./role-emblems.webp', import.meta.url).href;
+const prosecutorEmblemUrl = new URL('./prosecutor-emblem.webp', import.meta.url).href;
 const emblems = {
   lawyer: [0.25, 0.25],
   judge: [0.75, 0.25],
-  prosecutor: [0.25, 0.75]
+  prosecutor: [0.5, 0.5]
 };
+
+function artworkUrl(role) {
+  return role === 'prosecutor' ? prosecutorEmblemUrl : emblemUrl;
+}
 
 function emblem(node, role) {
   const mark = node('span', null, { class: 'document-emblem emblem-' + role, 'aria-hidden': 'true' });
-  mark.style.backgroundImage = 'url("' + emblemUrl + '")';
+  mark.style.backgroundImage = 'url("' + artworkUrl(role) + '")';
   return mark;
 }
 
 function logo(ctx, image, role) {
   const [x, y] = emblems[role];
-  const size = Math.min(image.naturalWidth, image.naturalHeight) / 2.6;
+  const size = Math.min(image.naturalWidth, image.naturalHeight) / (role === 'prosecutor' ? 1 : 2.6);
   ctx.drawImage(image, x * image.naturalWidth - size / 2, y * image.naturalHeight - size / 2,
     size, size, margin, 136, 122, 122);
 }
@@ -216,7 +221,7 @@ export function settingsPanel(parent, user, node) {
 
 export async function documentsPanel(parent, user, api, node, selectedId) {
   const artwork = new Image();
-  artwork.src = emblemUrl;
+  artwork.src = artworkUrl(user.role);
   const [records] = await Promise.all([api('documents'), artwork.decode()]);
   const selected = records.find((item) => item.id === selectedId);
   const root = node('div', null, { class: 'documents-grid' });

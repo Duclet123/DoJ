@@ -616,7 +616,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   }
   shell.append(bar);
   if (documentRoute || signatureRoute || settingsRoute) {
-    const module = await import(new URL('documents.js?v=role-emblems-1', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=role-emblems-2', firebaseModuleUrl).href);
     if (settingsRoute) module.settingsPanel(shell, user, node);
     else if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
