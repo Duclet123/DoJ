@@ -1,4 +1,5 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
+const workspaceConfigUrl = new URL('workspace.json', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 const staticPortal = document.body.dataset.hosting === 'static';
@@ -158,7 +159,19 @@ async function workspace(id, loginRoute) {
     if (error.status !== 401) throw error;
     shell.append(node('h1', 'Σύνδεση προσωπικού'));
     if (staticPortal) {
-      shell.append(node('p', 'Η σύνδεση θα είναι διαθέσιμη όταν ενεργοποιηθεί ο server του DoJ.'));
+      try {
+        const response = await fetch(workspaceConfigUrl, { cache: 'no-cache' });
+        if (!response.ok) throw new Error('Workspace configuration unavailable');
+        const { origin } = await response.json();
+        const url = origin ? new URL(origin) : null;
+        if (url?.protocol === 'https:' && url.origin === origin) {
+          shell.append(link('Μετάβαση στη σύνδεση', new URL('/#login', url).href, 'button'));
+        } else {
+          shell.append(node('p', 'Η σύνδεση θα είναι διαθέσιμη όταν ενεργοποιηθεί ο server του DoJ.'));
+        }
+      } catch {
+        shell.append(node('p', 'Η σύνδεση προσωπικού δεν είναι διαθέσιμη αυτή τη στιγμή.'));
+      }
     } else {
       form(shell, 'Σύνδεση', [['username', 'Όνομα χρήστη', 'text'], ['password', 'Κωδικός', 'password']], async (data) => {
         await api('login', data);
