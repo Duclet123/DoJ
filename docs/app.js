@@ -65,10 +65,11 @@ function card(title, detail, body) {
 
 function form(parent, submitLabel, fields, submit) {
   const element = node('form');
-  for (const [name, label, type, options] of fields) {
+  for (const [name, label, type, options, optional] of fields) {
     const wrapper = node('label', label);
     const tag = type === 'textarea' || type === 'select' ? type : 'input';
     const input = node(tag, null, { name, required: '' });
+    if (optional) input.removeAttribute('required');
     if (tag === 'input') input.type = type;
     if (tag === 'select') {
       input.append(node('option', 'Επιλογή…', { value: '' }));
@@ -211,6 +212,38 @@ async function staffPanel(shell) {
   return message;
 }
 
+const juryStates = { candidate: 'Υποψήφιος', seated: 'Επιλεγμένος', alternate: 'Αναπληρωματικός', excused: 'Απαλλάχθηκε' };
+
+async function caseAccess(parent, record) {
+  const roster = await api('assignable');
+  const area = section(parent, 'Πρόσβαση και αναθέσεις');
+  area.append(node('p', 'Επίλεξε ποιος έχει πρόσβαση ανά ρόλο. Η κενή επιλογή αφαιρεί την ανάθεση.'));
+  form(area, 'Αποθήκευση αναθέσεων', Object.entries(roleNames).map(([role, label]) => [
+    role, label, 'select', roster.filter((account) => account.role === role), true
+  ]), async (data) => {
+    await api('cases/' + record.id, { kind: 'assignments', ...data });
+    await render();
+  });
+  for (const [role, selected] of Object.entries(record.assignments)) area.querySelector('[name="' + role + '"]').value = selected;
+}
+
+function caseEntries(parent, label, entries) {
+  const area = section(parent, label);
+  const grid = node('div', null, { class: 'cards' });
+  if (!entries.length) grid.append(node('p', 'Δεν υπάρχουν καταχωρίσεις.'));
+  for (const entry of entries) {
+    const meta = [entry.author, date(entry.created), entry.hearing_at && 'Ακρόαση ' + date(entry.hearing_at),
+      juryStates[entry.juryStatus]].filter(Boolean).join(' · ');
+    const item = card(entry.label || kinds[entry.kind], meta, entry.body);
+    if (entry.kind === 'note') item.classList.add('private');
+    if (entry.kind === 'exhibit' && entry.url?.startsWith('https://')) {
+      item.append(node('a', 'Άνοιγμα exhibit', { href: entry.url, target: '_blank', rel: 'noopener noreferrer' }));
+    }
+    grid.append(item);
+  }
+  area.append(grid);
+}
+
 async function workspace(id, loginRoute, adminRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
@@ -285,25 +318,35 @@ async function workspace(id, loginRoute, adminRoute) {
     print.classList.add('toolbar');
     print.addEventListener('click', () => window.print());
     details.append(print);
-    const history = section(shell, 'Χρονολόγιο υπόθεσης');
-    const grid = node('div', null, { class: 'cards' });
-    for (const entry of record.entries) {
-      const meta = entry.author + ' · ' + date(entry.created) + (entry.hearing_at ? ' · Ακρόαση ' + date(entry.hearing_at) : '');
-      const item = card(kinds[entry.kind], meta, entry.body);
-      if (entry.kind === 'note') item.classList.add('private');
-      grid.append(item);
+    if (record.creator === user.id) await caseAccess(shell, record);
+    caseEntries(shell, 'Κατηγορητήριο', record.entries.filter((entry) => entry.kind === 'indictment'));
+    caseEntries(shell, 'Exhibits', record.entries.filter((entry) => ['exhibit', 'evidence'].includes(entry.kind)));
+    const jurors = new Map();
+    for (const entry of record.entries.filter((item) => item.kind === 'juror')) {
+      jurors.set(entry.label.toLocaleLowerCase('el'), entry);
     }
-    history.append(grid);
+    caseEntries(shell, 'Ένορκοι', [...jurors.values()]);
+    caseEntries(shell, 'Χρονολόγιο υπόθεσης', record.entries);
 
     const available = record.status === 'published' ? [] :
       record.status === 'decided' ? (user.role === 'judge' ? ['publish'] : []) :
-      { lawyer: ['motion', 'note'], prosecutor: ['evidence'], judge: ['hearing', 'decision'] }[user.role];
+      ['exhibit', ...{ lawyer: ['motion', 'note'], prosecutor: [], judge: ['juror', 'hearing', 'decision'] }[user.role]];
     if (available.length) {
       const actions = section(shell, 'Ενέργειες');
       for (const kind of available) {
         const fields = [['body', kind === 'publish' ? 'Κείμενο για το δημόσιο site' : kinds[kind], 'textarea']];
+        const actionLabel = { exhibit: 'Καταχώριση exhibit', juror: 'Καταχώριση ενόρκου' }[kind] || kinds[kind];
+        if (kind === 'exhibit') {
+          fields[0][1] = 'Περιγραφή exhibit';
+          fields.unshift(['label', 'Κωδικός ή τίτλος exhibit', 'text'], ['url', 'Σύνδεσμος HTTPS (προαιρετικός)', 'url', null, true]);
+        }
+        if (kind === 'juror') {
+          fields[0][1] = 'Σημειώσεις επιλογής';
+          fields.unshift(['label', 'Όνομα ή αριθμός ενόρκου', 'text'],
+            ['juryStatus', 'Κατάσταση', 'select', Object.entries(juryStates).map(([id, username]) => ({ id, username }))]);
+        }
         if (kind === 'hearing') fields.unshift(['hearingAt', 'Ημερομηνία και ώρα στη ζώνη της συσκευής σου', 'datetime-local']);
-        form(actions, kinds[kind], fields, async (data) => {
+        form(actions, actionLabel, fields, async (data) => {
           if (data.hearingAt) data.hearingAt = new Date(data.hearingAt).toISOString();
           await api('cases/' + id, { kind, ...data });
           await render();
@@ -333,23 +376,14 @@ async function workspace(id, loginRoute, adminRoute) {
   overview.append(grid);
   updateCases();
 
-  if (user.role === 'prosecutor') {
-    const create = section(shell, 'Κατάθεση κατηγορητηρίου');
-    const assignable = await api('assignable');
-    const names = (role) => assignable.filter((account) => account.role === role).sort((a, b) => a.username.localeCompare(b.username, 'el'));
-    if (!names('lawyer').length || !names('judge').length) {
-      create.append(node('p', 'Για νέα υπόθεση χρειάζεται τουλάχιστον ένας λογαριασμός δικηγόρου και ένας δικαστή.'));
-    } else {
-      form(create, 'Κατάθεση και δημιουργία υπόθεσης', [
-        ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
-        ['lawyer', 'Δικηγόρος', 'select', names('lawyer')], ['judge', 'Δικαστής', 'select', names('judge')],
-        ['body', 'Κατηγορητήριο', 'textarea']
-      ], async (data) => {
-        const created = await api('cases', data);
-        location.hash = '#workspace/' + created.id;
-      });
-    }
-  }
+  const create = section(shell, 'Νέα υπόθεση');
+  form(create, 'Δημιουργία υπόθεσης', [
+    ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
+    ['body', 'Κατηγορητήριο', 'textarea']
+  ], async (data) => {
+    const created = await api('cases', data);
+    location.hash = '#workspace/' + created.id;
+  });
   return { shell };
 }
 

@@ -102,12 +102,16 @@ export function connect(config) {
       return {};
     }
     if (path === 'assignable') {
-      const staff = await getDocs(query(profiles, where('role', 'in', ['lawyer', 'judge'])));
+      const staff = await getDocs(query(profiles, where('role', 'in', roles)));
       return staff.docs.map((item) => ({ id: item.id, ...item.data() })).filter((account) => !account.disabled);
     }
     if (path === 'cases' && !payload) {
-      const result = await getDocs(query(cases, where(user.role, '==', user.id)));
-      return result.docs.map((item) => summarize({ id: item.id, ...item.data() }))
+      const [assigned, owned] = await Promise.all([
+        getDocs(query(cases, where(user.role, '==', user.id))),
+        getDocs(query(cases, where('creator', '==', user.id)))
+      ]);
+      return [...new Map([...assigned.docs, ...owned.docs].map((item) => [item.id, item])).values()]
+        .map((item) => summarize({ id: item.id, ...item.data() }))
         .sort((a, b) => a.title.localeCompare(b.title, 'el'));
     }
     if (path === 'cases') {
@@ -117,7 +121,7 @@ export function connect(config) {
       const batch = writeBatch(db);
       batch.set(ref, {
         title: payload.title.trim(), defendant: payload.defendant.trim(),
-        prosecutor: user.id, lawyer: payload.lawyer, judge: payload.judge,
+        creator: user.id, prosecutor: '', lawyer: '', judge: '',
         status: 'filed', lastEntry: entry.id
       });
       batch.set(entry, { kind: 'indictment', author: user.id, body: payload.body.trim(), created: time });
@@ -135,23 +139,43 @@ export function connect(config) {
       const [entries, notes, ...people] = await Promise.all([
         getDocs(collection(ref, 'entries')),
         user.role === 'lawyer' ? getDocs(collection(ref, 'privateNotes', user.id, 'items')) : [],
-        ...roles.map((role) => getDoc(doc(profiles, data[role])))
+        ...[...new Set([...roles.map((role) => data[role]), data.creator].filter(Boolean))]
+          .map((uid) => getDoc(doc(profiles, uid)))
       ]);
       const names = Object.fromEntries(people.map((person) => [person.id, person.data()?.username || person.id]));
       return {
         ...summarize({ id: ref.id, ...data }),
-        ...Object.fromEntries(roles.map((role) => [role, names[data[role]]])),
+        creator: data.creator || data.prosecutor,
+        assignments: Object.fromEntries(roles.map((role) => [role, data[role]])),
+        ...Object.fromEntries(roles.map((role) => [role, names[data[role]] || 'Εκκρεμεί'])),
         entries: [...entries.docs, ...(notes.docs || [])].map((item) => {
           const value = item.data();
-          return { ...value, author: names[value.author] || user.username };
+          return { ...value, author: names[value.author] || value.author };
         }).sort((a, b) => a.created.localeCompare(b.created))
       };
     }
 
+    if (payload.kind === 'assignments') {
+      const snap = await getDoc(ref);
+      if (!snap.exists()) throw denied('Η υπόθεση δεν βρέθηκε.', 404);
+      const previous = snap.data();
+      await updateDoc(ref, {
+        creator: previous.creator || previous.prosecutor,
+        ...Object.fromEntries(roles.map((role) => [role, payload[role] || '']))
+      });
+      return {};
+    }
     const kind = payload.kind;
     const body = payload.body.trim();
     const created = new Date().toISOString();
     const data = { kind, author: user.id, body, created };
+    if (kind === 'exhibit' || kind === 'juror') data.label = payload.label.trim();
+    if (kind === 'exhibit' && payload.url?.trim()) {
+      const url = new URL(payload.url.trim());
+      if (url.protocol !== 'https:') throw new Error('Ο σύνδεσμος πρέπει να χρησιμοποιεί HTTPS.');
+      data.url = url.href;
+    }
+    if (kind === 'juror') data.juryStatus = payload.juryStatus;
     if (kind === 'hearing') {
       if (!(new Date(payload.hearingAt) > new Date())) throw new Error('Όρισε μελλοντική ημερομηνία ακρόασης.');
       data.hearing_at = payload.hearingAt;

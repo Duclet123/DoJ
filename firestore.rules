@@ -34,7 +34,19 @@ service cloud.firestore {
         && !get(staffPath(uid)).data.get('disabled', false);
     }
     function assigned(data) {
-      return staff() && data[role()] == request.auth.uid;
+      return staff() && (data.get('creator', '') == request.auth.uid || data[role()] == request.auth.uid);
+    }
+    function owner(data) {
+      return staff() && data.get('creator', data.prosecutor) == request.auth.uid;
+    }
+    function validAssignments(data) {
+      return (data.prosecutor == '' || hasRole(data.prosecutor, 'prosecutor'))
+        && (data.lawyer == '' || hasRole(data.lawyer, 'lawyer'))
+        && (data.judge == '' || hasRole(data.judge, 'judge'));
+    }
+    function updatedAssignments(old, next) {
+      return owner(old) && next.diff(old).affectedKeys().hasOnly(['prosecutor', 'lawyer', 'judge', 'creator'])
+        && next.creator == old.get('creator', old.prosecutor) && validAssignments(next);
     }
     function open(data) {
       return data.status in ['filed', 'scheduled'];
@@ -47,9 +59,14 @@ service cloud.firestore {
     }
     function validEntry(data) {
       return data.keys().hasAll(['kind', 'author', 'body', 'created'])
-        && data.keys().hasOnly(['kind', 'author', 'body', 'created', 'hearing_at'])
+        && data.keys().hasOnly(['kind', 'author', 'body', 'created', 'hearing_at', 'label', 'url', 'juryStatus'])
         && data.author == request.auth.uid && text(data.body, 12000) && iso(data.created)
-        && (data.kind == 'hearing' ? iso(data.hearing_at) : !('hearing_at' in data));
+        && (data.kind == 'hearing' ? iso(data.hearing_at) : !('hearing_at' in data))
+        && (data.kind in ['exhibit', 'juror'] ? text(data.label, 150) : !('label' in data))
+        && (data.kind == 'exhibit'
+          ? (!('url' in data) || (text(data.url, 2048) && data.url.matches('^https://.+')))
+          : !('url' in data))
+        && (data.kind == 'juror' ? data.juryStatus in ['candidate', 'seated', 'alternate', 'excused'] : !('juryStatus' in data));
     }
     function matchesPublic(id, entry) {
       let published = getAfter(docketPath(id)).data;
@@ -79,7 +96,7 @@ service cloud.firestore {
 
     match /staff/{uid} {
       allow get: if request.auth != null && (request.auth.uid == uid || staff());
-      allow list: if admin() || (staff() && role() == 'prosecutor');
+      allow list: if staff();
       allow create: if admin() && validStaff(request.resource.data);
       allow update: if admin() && !resource.data.get('admin', false) && validStaff(request.resource.data);
     }
@@ -96,25 +113,30 @@ service cloud.firestore {
     }
     match /cases/{id} {
       allow read: if assigned(resource.data);
-      allow create: if staff() && role() == 'prosecutor'
+      allow create: if staff()
         && id.matches('^[A-Za-z0-9]{20}$')
-        && request.resource.data.keys().hasOnly(['title', 'defendant', 'prosecutor', 'lawyer', 'judge', 'status', 'lastEntry'])
+        && request.resource.data.keys().hasOnly(['title', 'defendant', 'prosecutor', 'lawyer', 'judge', 'status', 'lastEntry', 'creator'])
         && text(request.resource.data.title, 150) && text(request.resource.data.defendant, 100)
-        && request.resource.data.prosecutor == request.auth.uid
-        && hasRole(request.resource.data.lawyer, 'lawyer') && hasRole(request.resource.data.judge, 'judge')
+        && (('creator' in request.resource.data)
+          ? request.resource.data.creator == request.auth.uid && validAssignments(request.resource.data)
+          : role() == 'prosecutor' && request.resource.data.prosecutor == request.auth.uid
+            && hasRole(request.resource.data.lawyer, 'lawyer') && hasRole(request.resource.data.judge, 'judge'))
         && request.resource.data.status == 'filed'
         && getAfter(entryPath(id, request.resource.data.lastEntry)).data.kind == 'indictment';
-      allow update: if assigned(resource.data) && courtTransition(id, resource.data, request.resource.data);
+      allow update: if (assigned(resource.data) && courtTransition(id, resource.data, request.resource.data))
+        || updatedAssignments(resource.data, request.resource.data);
 
       match /entries/{entry} {
         allow read: if assigned(get(casePath(id)).data);
         allow create: if staff() && validEntry(request.resource.data) && (
-          (role() == 'prosecutor' && request.resource.data.kind == 'indictment' && !exists(casePath(id))
-            && getAfter(casePath(id)).data.prosecutor == request.auth.uid
+          (request.resource.data.kind == 'indictment' && !exists(casePath(id))
+            && owner(getAfter(casePath(id)).data)
             && getAfter(casePath(id)).data.lastEntry == entry)
           || (request.resource.data.kind in ['motion', 'evidence'] && assigned(get(casePath(id)).data)
             && open(getAfter(casePath(id)).data)
             && (request.resource.data.kind == 'motion' ? role() == 'lawyer' : role() == 'prosecutor'))
+          || (request.resource.data.kind in ['exhibit', 'juror'] && assigned(get(casePath(id)).data)
+            && open(getAfter(casePath(id)).data) && (request.resource.data.kind == 'exhibit' || role() == 'judge'))
           || (request.resource.data.kind in ['hearing', 'decision', 'publish'] && linkedCourtEntry(id, entry))
         );
       }
