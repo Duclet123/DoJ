@@ -1,3 +1,4 @@
+const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 const staticPortal = document.body.dataset.hosting === 'static';
@@ -109,7 +110,7 @@ async function publicSite(fragment) {
 async function penalCode() {
   const shell = node('div', null, { class: 'wrap content' });
   shell.append(node('h1', 'Ποινικός Κώδικας'));
-  const response = await fetch('./penal-code.json');
+  const response = await fetch(penalCodeUrl);
   if (!response.ok) throw new Error('Ο ποινικός κώδικας δεν φορτώθηκε.');
   const articles = await response.json();
   if (!articles.length) {
