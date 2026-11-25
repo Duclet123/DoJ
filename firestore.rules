@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function staffPath(uid) {
+      return /databases/$(database)/documents/staff/$(uid);
+    }
+    function casePath(id) {
+      return /databases/$(database)/documents/cases/$(id);
+    }
+    function entryPath(id, entry) {
+      return /databases/$(database)/documents/cases/$(id)/entries/$(entry);
+    }
+    function docketPath(id) {
+      return /databases/$(database)/documents/docket/$(id);
+    }
+    function staff() {
+      return request.auth != null && exists(staffPath(request.auth.uid))
+        && get(staffPath(request.auth.uid)).data.role in ['lawyer', 'prosecutor', 'judge'];
+    }
+    function role() {
+      return get(staffPath(request.auth.uid)).data.role;
+    }
+    function hasRole(uid, expected) {
+      return uid is string && exists(staffPath(uid)) && get(staffPath(uid)).data.role == expected;
+    }
+    function assigned(data) {
+      return staff() && data[role()] == request.auth.uid;
+    }
+    function open(data) {
+      return data.status in ['filed', 'scheduled'];
+    }
+    function text(value, limit) {
+      return value is string && value.size() > 0 && value.size() <= limit;
+    }
+    function iso(value) {
+      return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$');
+    }
+    function validEntry(data) {
+      return data.keys().hasAll(['kind', 'author', 'body', 'created'])
+        && data.keys().hasOnly(['kind', 'author', 'body', 'created', 'hearing_at'])
+        && data.author == request.auth.uid && text(data.body, 12000) && iso(data.created)
+        && (data.kind == 'hearing' ? iso(data.hearing_at) : !('hearing_at' in data));
+    }
+    function matchesPublic(id, entry) {
+      let published = getAfter(docketPath(id)).data;
+      return entry.kind == 'hearing'
+        ? published == {'kind': 'hearing', 'hearing_at': entry.hearing_at, 'created': entry.created}
+        : published == {'kind': 'publish', 'body': entry.body, 'created': entry.created};
+    }
+    function courtTransition(id, old, next) {
+      let event = entryPath(id, next.lastEntry);
+      let entry = getAfter(event).data;
+      return role() == 'judge'
+        && next.diff(old).affectedKeys().hasOnly(['status', 'lastEntry'])
+        && next.lastEntry != old.lastEntry && !exists(event)
+        && entry.author == request.auth.uid
+        && (
+          (open(old) && next.status == 'scheduled' && entry.kind == 'hearing' && matchesPublic(id, entry))
+          || (open(old) && next.status == 'decided' && entry.kind == 'decision' && !existsAfter(docketPath(id)))
+          || (old.status == 'decided' && next.status == 'published' && entry.kind == 'publish' && matchesPublic(id, entry))
+        );
+    }
+    function linkedCourtEntry(id, eventId) {
+      let old = get(casePath(id)).data;
+      let next = getAfter(casePath(id)).data;
+      return assigned(old) && role() == 'judge'
+        && old.lastEntry != eventId && next.lastEntry == eventId;
+    }
+
+    match /staff/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || staff());
+      allow list: if staff() && role() == 'prosecutor';
+    }
+    match /penal/{article} {
+      allow read: if true;
+    }
+    match /docket/{id} {
+      allow read: if true;
+      allow create, update: if assigned(get(casePath(id)).data) && role() == 'judge'
+        && get(casePath(id)).data.lastEntry != getAfter(casePath(id)).data.lastEntry
+        && (request.resource.data.kind == 'hearing' || request.resource.data.kind == 'publish');
+      allow delete: if assigned(get(casePath(id)).data) && role() == 'judge'
+        && open(get(casePath(id)).data) && getAfter(casePath(id)).data.status == 'decided';
+    }
+    match /cases/{id} {
+      allow read: if assigned(resource.data);
+      allow create: if staff() && role() == 'prosecutor'
+        && id.matches('^[A-Za-z0-9]{20}$')
+        && request.resource.data.keys().hasOnly(['title', 'defendant', 'prosecutor', 'lawyer', 'judge', 'status', 'lastEntry'])
+        && text(request.resource.data.title, 150) && text(request.resource.data.defendant, 100)
+        && request.resource.data.prosecutor == request.auth.uid
+        && hasRole(request.resource.data.lawyer, 'lawyer') && hasRole(request.resource.data.judge, 'judge')
+        && request.resource.data.status == 'filed'
+        && getAfter(entryPath(id, request.resource.data.lastEntry)).data.kind == 'indictment';
+      allow update: if assigned(resource.data) && courtTransition(id, resource.data, request.resource.data);
+
+      match /entries/{entry} {
+        allow read: if assigned(get(casePath(id)).data);
+        allow create: if staff() && validEntry(request.resource.data) && (
+          (role() == 'prosecutor' && request.resource.data.kind == 'indictment' && !exists(casePath(id))
+            && getAfter(casePath(id)).data.prosecutor == request.auth.uid
+            && getAfter(casePath(id)).data.lastEntry == entry)
+          || (request.resource.data.kind in ['motion', 'evidence'] && assigned(get(casePath(id)).data)
+            && open(getAfter(casePath(id)).data)
+            && (request.resource.data.kind == 'motion' ? role() == 'lawyer' : role() == 'prosecutor'))
+          || (request.resource.data.kind in ['hearing', 'decision', 'publish'] && linkedCourtEntry(id, entry))
+        );
+      }
+      match /privateNotes/{uid}/items/{entry} {
+        allow read: if staff() && role() == 'lawyer' && request.auth.uid == uid && assigned(get(casePath(id)).data);
+        allow create: if staff() && role() == 'lawyer' && request.auth.uid == uid
+          && assigned(get(casePath(id)).data) && open(getAfter(casePath(id)).data)
+          && validEntry(request.resource.data) && request.resource.data.kind == 'note';
+      }
+    }
+  }
+}

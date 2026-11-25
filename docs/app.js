@@ -1,8 +1,9 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
-const workspaceConfigUrl = new URL('workspace.json', document.currentScript.src);
+const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
-const staticPortal = document.body.dataset.hosting === 'static';
+let connection;
 
 const roleNames = { lawyer: 'Δικηγόρος', prosecutor: 'Εισαγγελέας', judge: 'Δικαστής' };
 const statuses = { filed: 'Κατατέθηκε', scheduled: 'Ορίστηκε ακρόαση', decided: 'Εκδόθηκε απόφαση', published: 'Δημοσιεύτηκε' };
@@ -20,19 +21,39 @@ function node(tag, value, attributes = {}) {
 
 const link = (label, href, className) => node('a', label, { href, class: className || '' });
 const date = (value) => new Date(value).toLocaleString('el-GR', { dateStyle: 'medium', timeStyle: 'short' });
-const number = (id) => 'DOJ-' + String(id).padStart(4, '0');
+const number = (id) => 'DOJ-' + String(id).slice(0, 10);
+
+async function connectFirebase() {
+  const response = await fetch(firebaseConfigUrl, { cache: 'no-cache' });
+  if (!response.ok) throw new Error('Η ρύθμιση του Firebase δεν φορτώθηκε.');
+  const config = await response.json();
+  if (!config.apiKey || !config.projectId || !config.appId) return null;
+  const { connect } = await import(firebaseModuleUrl.href);
+  return connect(config);
+}
 
 async function api(path, payload) {
-  if (staticPortal) {
-    if (path === 'public') return { hearings: [], decisions: [] };
-    throw Object.assign(new Error('Η σύνδεση απαιτεί τον server του DoJ.'), { status: 401 });
-  }
-  const result = await fetch('/api/' + path, payload == null ? {} : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  connection ??= connectFirebase().catch((error) => {
+    connection = undefined;
+    throw error;
   });
-  const data = await result.json();
-  if (!result.ok) throw Object.assign(new Error(data.message), { status: result.status });
-  return data;
+  const request = await connection;
+  if (!request) {
+    if (path === 'public') return { hearings: [], decisions: [] };
+    if (path === 'penal') {
+      const fallback = await fetch(penalCodeUrl);
+      if (!fallback.ok) throw new Error('Ο ποινικός κώδικας δεν φορτώθηκε.');
+      return fallback.json();
+    }
+    throw Object.assign(new Error('Η σύνδεση προσωπικού εκκρεμεί μέχρι να ενεργοποιηθεί το Firebase.'), { status: 503 });
+  }
+  try {
+    return await request(path, payload);
+  } catch (error) {
+    if (error.code === 'permission-denied') throw Object.assign(new Error('Δεν έχεις πρόσβαση για αυτή την ενέργεια.'), { status: 403 });
+    if (error.code === 'unavailable') throw new Error('Η υπηρεσία είναι προσωρινά μη διαθέσιμη.');
+    throw error;
+  }
 }
 
 function card(title, detail, body) {
@@ -51,7 +72,7 @@ function form(parent, submitLabel, fields, submit) {
     if (tag === 'input') input.type = type;
     if (tag === 'select') {
       input.append(node('option', 'Επιλογή…', { value: '' }));
-      for (const value of options) input.append(node('option', value, { value }));
+      for (const option of options) input.append(node('option', option.username, { value: option.id }));
     }
     if (tag === 'textarea') input.maxLength = 12000;
     if (type === 'password') input.autocomplete = 'current-password';
@@ -111,9 +132,7 @@ async function publicSite(fragment) {
 async function penalCode() {
   const shell = node('div', null, { class: 'wrap content' });
   shell.append(node('h1', 'Ποινικός Κώδικας'));
-  const response = await fetch(penalCodeUrl);
-  if (!response.ok) throw new Error('Ο ποινικός κώδικας δεν φορτώθηκε.');
-  const articles = await response.json();
+  const articles = (await api('penal')).sort((a, b) => a.code.localeCompare(b.code, 'el', { numeric: true }));
   if (!articles.length) {
     shell.append(node('p', 'Δεν έχουν δημοσιευτεί ακόμα άρθρα του ποινικού κώδικα.'));
     return { shell };
@@ -156,24 +175,19 @@ async function workspace(id, loginRoute) {
   try {
     user = await api('me');
   } catch (error) {
-    if (error.status !== 401) throw error;
+    if (![401, 403, 503].includes(error.status)) throw error;
     shell.append(node('h1', 'Σύνδεση προσωπικού'));
-    if (staticPortal) {
-      try {
-        const response = await fetch(workspaceConfigUrl, { cache: 'no-cache' });
-        if (!response.ok) throw new Error('Workspace configuration unavailable');
-        const { origin } = await response.json();
-        const url = origin ? new URL(origin) : null;
-        if (url?.protocol === 'https:' && url.origin === origin) {
-          shell.append(link('Μετάβαση στη σύνδεση', new URL('/#login', url).href, 'button'));
-        } else {
-          shell.append(node('p', 'Η σύνδεση θα είναι διαθέσιμη όταν ενεργοποιηθεί ο server του DoJ.'));
-        }
-      } catch {
-        shell.append(node('p', 'Η σύνδεση προσωπικού δεν είναι διαθέσιμη αυτή τη στιγμή.'));
-      }
-    } else {
-      form(shell, 'Σύνδεση', [['username', 'Όνομα χρήστη', 'text'], ['password', 'Κωδικός', 'password']], async (data) => {
+    if (error.status !== 401) shell.append(node('p', error.message, { role: 'status' }));
+    if (error.status === 403) {
+      const reset = node('button', 'Αποσύνδεση', { class: 'secondary' });
+      reset.addEventListener('click', async () => {
+        await api('logout', {});
+        await render();
+      });
+      shell.append(reset);
+    }
+    if (error.status === 401) {
+      form(shell, 'Σύνδεση', [['username', 'Email', 'email'], ['password', 'Κωδικός', 'password']], async (data) => {
         await api('login', data);
         if (loginRoute) location.hash = '#workspace';
         else await render();
@@ -271,7 +285,7 @@ async function workspace(id, loginRoute) {
   if (user.role === 'prosecutor') {
     const create = section(shell, 'Κατάθεση κατηγορητηρίου');
     const assignable = await api('assignable');
-    const names = (role) => assignable.filter((account) => account.role === role).map((account) => account.username);
+    const names = (role) => assignable.filter((account) => account.role === role).sort((a, b) => a.username.localeCompare(b.username, 'el'));
     if (!names('lawyer').length || !names('judge').length) {
       create.append(node('p', 'Για νέα υπόθεση χρειάζεται τουλάχιστον ένας λογαριασμός δικηγόρου και ένας δικαστή.'));
     } else {
@@ -292,7 +306,7 @@ let renderId = 0;
 async function render() {
   const current = ++renderId;
   const fragment = location.hash.slice(1);
-  const match = fragment.match(/^workspace(?:\/(\d+))?$/);
+  const match = fragment.match(/^workspace(?:\/([A-Za-z0-9]{20}))?$/);
   view.replaceChildren(node('p', 'Φόρτωση…', { class: 'wrap content', role: 'status' }));
   try {
     const loginRoute = fragment === 'login';
