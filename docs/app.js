@@ -116,7 +116,14 @@ async function publicSite(fragment) {
   const hearings = section(content, 'Προσεχείς ακροάσεις', 'hearings');
   const decisions = section(content, 'Δημοσιευμένες αποφάσεις', 'decisions');
   shell.append(hero, content);
-  const records = await api('public');
+  let records;
+  try {
+    records = await api('public');
+  } catch {
+    hearings.append(node('p', 'Το πρόγραμμα ακροάσεων δεν είναι διαθέσιμο αυτή τη στιγμή.'));
+    decisions.append(node('p', 'Οι δημοσιευμένες αποφάσεις δεν είναι διαθέσιμες αυτή τη στιγμή.'));
+    return { shell, anchor: fragment === 'hearings' ? hearings : fragment === 'decisions' ? decisions : null };
+  }
   for (const [area, list, empty, makeCard] of [
     [hearings, records.hearings, 'Δεν υπάρχουν προγραμματισμένες ακροάσεις.', (row) => card(number(row.case_id), date(row.hearing_at))],
     [decisions, records.decisions, 'Δεν έχουν δημοσιευτεί αποφάσεις.', (row) => card(number(row.case_id), date(row.created), row.body)]
