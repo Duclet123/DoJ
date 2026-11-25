@@ -602,7 +602,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     return { shell };
   }
   showAccount(user);
-  shell.classList.add('workspace-editorial');
+  shell.classList.add('workspace-editorial', 'office-agenda');
 
   const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Office' });
   bar.append(link('Αρχική Office', '#workspace'));
@@ -759,15 +759,14 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   });
   const dashboard = node('div', null, { class: 'office-dashboard' });
   shell.append(dashboard);
-  const docketPanel = node('div', null, { class: 'office-overview' });
-  const archive = node('div', null, { class: 'office-overview' });
-  if (user.role !== 'judge') dashboard.append(archive, docketPanel);
-  else dashboard.append(docketPanel, archive);
-  const hearings = section(docketPanel, 'Επόμενες ακροάσεις', 'office-hearings');
-  const decisions = section(docketPanel, 'Αποφάσεις υποθέσεών μου', 'office-decisions');
-  const recent = section(archive, 'Πρόσφατα έγγραφα');
-  const overview = section(archive, 'Οι υποθέσεις μου', 'office-cases');
-  if (user.role === 'prosecutor') archive.prepend(overview);
+  const agenda = node('div', null, { class: 'office-overview agenda-stack' });
+  dashboard.append(agenda);
+  const hearings = section(agenda, 'Επόμενη ακρόαση', 'office-hearings');
+  hearings.classList.add('agenda-hearing');
+  const recent = section(agenda, 'Πρόσφατα έγγραφα');
+  if (user.role === 'lawyer') agenda.prepend(recent);
+  const decisions = section(agenda, 'Αποφάσεις υποθέσεών μου', 'office-decisions');
+  const overview = section(dashboard, user.role === 'prosecutor' && officeSection !== 'cases' ? 'Ενεργές υποθέσεις' : 'Οι υποθέσεις μου', 'office-cases');
   const anchors = { hearings, decisions, cases: overview };
   form(create, 'Δημιουργία υπόθεσης', [
     ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
@@ -795,9 +794,14 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     }
     const own = records.filter((item) => visible.has(item.case_id)).slice(0, 4);
     if (!own.length) area.append(node('p', empty));
-    for (const item of own) {
-      const row = link(visible.get(item.case_id).title, '#workspace/' + item.case_id, 'office-row');
-      row.append(node('small', date(item[dateKey])));
+    for (const [index, item] of own.entries()) {
+      const row = link('', '#workspace/' + item.case_id, 'office-row');
+      const timestamp = node('time', date(item[dateKey]), { datetime: item[dateKey] });
+      const title = node('strong', visible.get(item.case_id).title);
+      if (area === hearings && index === 0) {
+        row.classList.add('agenda-next');
+        row.append(timestamp, title, node('small', number(item.case_id)));
+      } else row.append(title, timestamp);
       area.append(row);
     }
   };
@@ -820,8 +824,9 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     const query = search.value.trim().toLocaleLowerCase('el');
     const matches = cases.filter((item) => (filter.value === 'all' || ['filed', 'scheduled'].includes(item.status)) && [number(item.id), item.title, item.defendant].join(' ').toLocaleLowerCase('el').includes(query));
     grid.replaceChildren(...matches.map((item) => {
-      const itemLink = link('', '#workspace/' + item.id, 'card-link');
-      itemLink.append(card(item.title, number(item.id) + ' · ' + statuses[item.status], item.defendant));
+      const itemLink = link('', '#workspace/' + item.id, 'card-link agenda-case');
+      itemLink.append(node('strong', item.title), node('span', statuses[item.status], { class: 'agenda-state' }),
+        node('small', number(item.id) + ' · ' + item.defendant));
       return itemLink;
     }));
     if (!matches.length) grid.append(node('p', cases.length ? 'Δεν βρέθηκαν υποθέσεις με αυτά τα φίλτρα.' : 'Δεν σου έχουν ανατεθεί υποθέσεις.'));

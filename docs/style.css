@@ -262,3 +262,25 @@ form[hidden]{display:none}
 .office-overview .card p{margin-bottom:0}
 .featured-hearing{border-top:3px solid var(--accent)}
 @media(max-width:710px){.office-dashboard{grid-template-columns:1fr}}
+
+.office-agenda .workspace-bar{background:#47302c;color:#fff;border:0;border-radius:8px;padding:12px}
+.office-agenda .workspace-bar a{border:1px solid transparent;border-radius:5px}
+.office-agenda .workspace-bar a:hover,.office-agenda .workspace-bar a[aria-current="page"]{background:#664641;border-color:#805b52;color:#fff}
+.office-agenda .office-dashboard{grid-template-columns:minmax(0,1fr) minmax(0,1.45fr);gap:16px}
+.office-agenda .agenda-stack{display:grid;gap:14px}
+.office-agenda .agenda-stack>section,.office-agenda #office-cases{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:clamp(14px,2vw,21px)}
+.office-agenda .agenda-stack>.agenda-hearing{background:#843b38;color:#fff;border-color:#843b38}
+.agenda-hearing a,.agenda-hearing small,.agenda-hearing time{color:inherit}
+.agenda-hearing .office-row{border-color:#ffffff50}
+.agenda-hearing .office-row:hover{color:#fff}
+.agenda-hearing .agenda-next{display:grid;justify-content:start;gap:2px;border:0;padding-top:0}
+.agenda-next time{font-size:clamp(18px,2.5vw,26px);font-weight:750}
+.agenda-hearing h2{margin-bottom:8px}
+.office-agenda #office-cases .cards{grid-template-columns:1fr;gap:0}
+.agenda-case{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px 10px;border-top:1px solid var(--line);padding:11px 3px}
+.agenda-case:hover{color:var(--accent)}
+.agenda-case small{grid-column:1/-1}
+.agenda-state{background:var(--wash);color:var(--accent-strong);border-radius:999px;padding:4px 8px;font-size:.8rem}
+@media(max-width:710px){.office-agenda .office-dashboard{grid-template-columns:1fr}}
+@media(max-width:410px){.agenda-case{grid-template-columns:1fr}.agenda-state{justify-self:start}}
+@media print{.office-agenda .workspace-bar{display:none!important}}
