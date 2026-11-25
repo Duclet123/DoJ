@@ -108,7 +108,10 @@ export function connect(config) {
     if (path === 'cases' && !payload) {
       const [assigned, owned] = await Promise.all([
         getDocs(query(cases, where(user.role, '==', user.id))),
-        getDocs(query(cases, where('creator', '==', user.id)))
+        getDocs(query(cases, where('creator', '==', user.id))).catch((error) => {
+          if (error.code !== 'permission-denied') throw error;
+          return { docs: [] };
+        })
       ]);
       return [...new Map([...assigned.docs, ...owned.docs].map((item) => [item.id, item])).values()]
         .map((item) => summarize({ id: item.id, ...item.data() }))

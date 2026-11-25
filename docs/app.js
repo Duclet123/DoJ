@@ -1,6 +1,6 @@
 const penalCodeUrl = new URL('penal-code.json', document.currentScript.src);
 const firebaseConfigUrl = new URL('firebase-config.json', document.currentScript.src);
-const firebaseModuleUrl = new URL('firebase-workspace.js', document.currentScript.src);
+const firebaseModuleUrl = new URL('firebase-workspace.js?v=case-access-2', document.currentScript.src);
 const view = document.querySelector('#view');
 const accountLink = document.querySelector('#account-link');
 let connection;
@@ -357,8 +357,29 @@ async function workspace(id, loginRoute, adminRoute) {
   }
 
   shell.append(node('h1', 'Workspace · ' + roleNames[user.role]));
+  const create = section(shell, 'Νέα υπόθεση');
+  form(create, 'Δημιουργία υπόθεσης', [
+    ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
+    ['body', 'Κατηγορητήριο', 'textarea']
+  ], async (data) => {
+    let created;
+    try {
+      created = await api('cases', data);
+    } catch (error) {
+      if (error.status !== 403) throw error;
+      throw new Error('Η δημιουργία υπόθεσης απορρίφθηκε. Ζήτησε από τον διαχειριστή να ελέγξει τους κανόνες Firestore του DoJ και την πρόσβαση του λογαριασμού.');
+    }
+    location.hash = '#workspace/' + created.id;
+  });
+
   const overview = section(shell, 'Οι υποθέσεις μου');
-  const cases = await api('cases');
+  let cases;
+  try {
+    cases = await api('cases');
+  } catch (error) {
+    overview.append(node('p', 'Η λίστα υποθέσεων δεν φορτώθηκε. ' + error.message, { role: 'alert' }));
+    return { shell };
+  }
   const grid = node('div', null, { class: 'cards' });
   const search = node('input', null, { type: 'search', placeholder: 'Αριθμός υπόθεσης, τίτλος ή κατηγορούμενος', 'aria-label': 'Αναζήτηση υποθέσεων' });
   const updateCases = () => {
@@ -376,14 +397,6 @@ async function workspace(id, loginRoute, adminRoute) {
   overview.append(grid);
   updateCases();
 
-  const create = section(shell, 'Νέα υπόθεση');
-  form(create, 'Δημιουργία υπόθεσης', [
-    ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
-    ['body', 'Κατηγορητήριο', 'textarea']
-  ], async (data) => {
-    const created = await api('cases', data);
-    location.hash = '#workspace/' + created.id;
-  });
   return { shell };
 }
 
