@@ -196,3 +196,13 @@ input,textarea,select{background:#fffdfa;border-color:#a69096;border-radius:2px}
   .case-summary,.case-facts div{background:white;color:black}
   .case-reference,.case-facts dt{color:#333}
 }
+
+.public-services{grid-template-columns:repeat(auto-fit,minmax(145px,1fr))}
+.case-panel > section > .card + .card{margin-top:12px}
+form[hidden]{display:none}
+@media(max-width:1080px){
+  .masthead .bar{grid-template-columns:minmax(0,1fr) auto;gap:10px 14px}
+  .masthead .bar nav{grid-column:1/-1;grid-row:2;justify-content:flex-start;gap:10px 17px}
+  .masthead .account-menu{grid-column:2;grid-row:1}
+}
+@media(max-width:540px){.public-services{grid-template-columns:1fr}}

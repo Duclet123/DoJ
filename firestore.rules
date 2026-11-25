@@ -59,14 +59,27 @@ service cloud.firestore {
     }
     function validEntry(data) {
       return data.keys().hasAll(['kind', 'author', 'body', 'created'])
-        && data.keys().hasOnly(['kind', 'author', 'body', 'created', 'hearing_at', 'label', 'url', 'juryStatus'])
+        && data.keys().hasOnly(['kind', 'author', 'body', 'created', 'hearing_at', 'label', 'url', 'juryStatus', 'articleId', 'articleCode', 'articleTitle', 'exhibitId', 'chargeId', 'verdict'])
         && data.author == request.auth.uid && text(data.body, 12000) && iso(data.created)
         && (data.kind == 'hearing' ? iso(data.hearing_at) : !('hearing_at' in data))
         && (data.kind in ['exhibit', 'juror'] ? text(data.label, 150) : !('label' in data))
         && (data.kind == 'exhibit'
           ? (!('url' in data) || (text(data.url, 2048) && data.url.matches('^https://.+')))
           : !('url' in data))
-        && (data.kind == 'juror' ? data.juryStatus in ['candidate', 'seated', 'alternate', 'excused'] : !('juryStatus' in data));
+        && (data.kind == 'juror' ? data.juryStatus in ['candidate', 'seated', 'alternate', 'excused'] : !('juryStatus' in data))
+        && (data.kind == 'charge' || !data.keys().hasAny(['articleId', 'articleCode', 'articleTitle', 'exhibitId']))
+        && (data.kind == 'verdict' || !data.keys().hasAny(['chargeId', 'verdict']));
+    }
+    function validCharge(id, data) {
+      let article = get(/databases/$(database)/documents/penal/$(data.articleId)).data;
+      return text(data.articleId, 200) && text(data.articleCode, 150) && text(data.articleTitle, 300)
+        && data.articleCode == article.code && data.articleTitle == article.title
+        && (!('exhibitId' in data) || (text(data.exhibitId, 200)
+          && get(entryPath(id, data.exhibitId)).data.kind in ['exhibit', 'evidence']));
+    }
+    function validVerdict(id, data) {
+      return text(data.chargeId, 200) && data.verdict in ['guilty', 'not-guilty', 'dismissed']
+        && get(entryPath(id, data.chargeId)).data.kind == 'charge';
     }
     function matchesPublic(id, entry) {
       let published = getAfter(docketPath(id)).data;
@@ -113,6 +126,23 @@ service cloud.firestore {
       }
 
     }
+    match /roster/{uid} {
+      allow read: if true;
+      allow create, update: if admin()
+        && request.resource.data.keys().hasOnly(['username', 'role'])
+        && text(request.resource.data.username, 100)
+        && hasRole(uid, request.resource.data.role)
+        && request.resource.data.username == get(staffPath(uid)).data.username;
+      allow delete: if admin();
+    }
+    match /applications/{id} {
+      allow create: if id.matches('^[A-Za-z0-9]{20}$')
+        && request.resource.data.keys().hasOnly(['name', 'contact', 'role', 'body', 'created'])
+        && text(request.resource.data.name, 100) && text(request.resource.data.contact, 120)
+        && request.resource.data.role in ['lawyer', 'prosecutor', 'judge']
+        && text(request.resource.data.body, 3000) && request.resource.data.created == request.time;
+      allow read: if admin();
+    }
     match /penal/{article} {
       allow read: if true;
     }
@@ -150,6 +180,9 @@ service cloud.firestore {
             && (request.resource.data.kind == 'motion' ? role() == 'lawyer' : role() == 'prosecutor'))
           || (request.resource.data.kind in ['exhibit', 'juror'] && assigned(get(casePath(id)).data)
             && open(getAfter(casePath(id)).data) && (request.resource.data.kind == 'exhibit' || role() == 'judge'))
+          || (assigned(get(casePath(id)).data) && open(getAfter(casePath(id)).data)
+            && ((role() == 'prosecutor' && request.resource.data.kind == 'charge' && validCharge(id, request.resource.data))
+              || (role() == 'judge' && request.resource.data.kind == 'verdict' && validVerdict(id, request.resource.data))))
           || (request.resource.data.kind in ['hearing', 'decision', 'publish'] && linkedCourtEntry(id, entry))
         );
       }

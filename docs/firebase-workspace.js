@@ -72,8 +72,20 @@ export function connect(config) {
   }
 
   return async function request(path, payload) {
+    if (path === 'roster') {
+      return (await getDocs(collection(db, 'roster'))).docs.map((item) => ({ id: item.id, ...item.data() }));
+    }
+    if (path === 'applications' && payload) {
+      const batch = writeBatch(db);
+      batch.set(doc(collection(db, 'applications')), {
+        name: payload.name.trim(), contact: payload.contact.trim(), role: payload.role,
+        body: payload.body.trim(), created: serverTimestamp()
+      });
+      await batch.commit();
+      return {};
+    }
     if (path === 'public') return publicDocket();
-    if (path === 'penal') return (await getDocs(collection(db, 'penal'))).docs.map((item) => item.data());
+    if (path === 'penal') return (await getDocs(collection(db, 'penal'))).docs.map((item) => ({ ...item.data(), id: item.id }));
     if (path === 'login') {
       let credential;
       try {
@@ -89,6 +101,24 @@ export function connect(config) {
     if (path === 'logout') { await signOut(auth); return {}; }
     const user = await profile(auth.currentUser);
     if (path === 'me') return user;
+    if (path === 'applications') {
+      return (await getDocs(collection(db, 'applications'))).docs.map((item) => item.data())
+        .sort((a, b) => b.created.seconds - a.created.seconds);
+    }
+    if (path === 'roster-admin') {
+      if (!user.admin) throw denied('Απαιτείται πρόσβαση διαχειριστή.', 403);
+      const target = doc(profiles, payload.id);
+      await runTransaction(db, async (transaction) => {
+        const profile = await transaction.get(target);
+        const roster = doc(db, 'roster', payload.id);
+        if (payload.visible) {
+          const { username, role } = profile.data();
+          transaction.set(roster, { username, role });
+        } else transaction.delete(roster);
+      });
+      return {};
+    }
+
     if (path === 'documents' || path.startsWith('documents/')) {
       const documents = collection(db, 'staff', user.id, 'documents');
       if (!payload) {
@@ -117,7 +147,10 @@ export function connect(config) {
       if (path === 'staff') return createStaff(payload);
       const id = path.slice('staff/'.length);
       if (!roles.includes(payload.role) || typeof payload.disabled !== 'boolean') throw new Error('Μη έγκυρες ρυθμίσεις προσωπικού.');
-      await updateDoc(doc(profiles, id), { role: payload.role, disabled: payload.disabled });
+      const batch = writeBatch(db);
+      batch.update(doc(profiles, id), { role: payload.role, disabled: payload.disabled });
+      batch.delete(doc(db, 'roster', id));
+      await batch.commit();
       return {};
     }
     if (path === 'assignable') {
@@ -172,7 +205,7 @@ export function connect(config) {
         ...Object.fromEntries(roles.map((role) => [role, names[data[role]] || 'Εκκρεμεί'])),
         entries: [...entries.docs, ...(notes.docs || [])].map((item) => {
           const value = item.data();
-          return { ...value, author: names[value.author] || value.author };
+          return { ...value, id: item.id, author: names[value.author] || value.author };
         }).sort((a, b) => a.created.localeCompare(b.created))
       };
     }
@@ -198,6 +231,18 @@ export function connect(config) {
       data.url = url.href;
     }
     if (kind === 'juror') data.juryStatus = payload.juryStatus;
+    if (kind === 'charge') {
+      const article = await getDoc(doc(db, 'penal', payload.articleId));
+      if (!article.exists()) throw new Error('Το άρθρο δεν βρέθηκε.');
+      data.articleId = article.id;
+      data.articleCode = article.data().code;
+      data.articleTitle = article.data().title;
+      if (payload.exhibitId) data.exhibitId = payload.exhibitId;
+    }
+    if (kind === 'verdict') {
+      data.chargeId = payload.chargeId;
+      data.verdict = payload.verdict;
+    }
     if (kind === 'hearing') {
       if (!(new Date(payload.hearingAt) > new Date())) throw new Error('Όρισε μελλοντική ημερομηνία ακρόασης.');
       data.hearing_at = payload.hearingAt;
