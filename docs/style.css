@@ -225,13 +225,11 @@ form[hidden]{display:none}
 .document-paper{background:white;border:1px solid var(--line);min-height:620px;padding:clamp(14px,5vw,62px);margin-bottom:14px;box-shadow:0 3px 12px #40252d10}
 .document-letterhead{display:grid;justify-items:center;gap:5px;text-align:center;border-bottom:1px solid #ad8545;padding-bottom:16px;margin-bottom:22px;font:600 clamp(17px,3vw,25px) var(--heading)}
 .document-letterhead small{font-size:.875rem}
-.document-seal{display:grid;place-items:center;width:40px;aspect-ratio:1;border:1px solid #ad8545;border-radius:50%;font-size:.9rem}
 .document-paper input,.document-paper textarea{border:0;background:white;padding:5px;color:var(--ink);font-family:var(--heading)}
 .document-paper input{text-align:center;font-size:clamp(20px,3.4vw,30px);font-weight:700;margin-bottom:10px}
 .document-paper textarea{line-height:1.6;resize:vertical}
 
 .document-letterhead{position:relative;padding-inline:52px}
-.document-letterhead .document-seal{position:absolute;left:0;top:0}
 .document-signoff{width:min(100%,275px);margin:20px 0 0 auto;border-bottom:1px solid #ad8545}
 .document-signoff input{text-align:right;font-style:italic;margin:0}
 .account-details summary.button{display:flex;align-items:center;gap:8px;max-width:clamp(125px,30vw,225px);background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:5px 8px}
@@ -241,4 +239,13 @@ form[hidden]{display:none}
 .account-caret{flex:none;color:var(--accent)}
 .account-popover a{display:block;justify-self:stretch;padding:7px;border-top:1px solid var(--line);text-decoration:none}
 .account-popover a:hover{background:var(--wash)}
-@media(max-width:540px){.document-letterhead{padding-inline:41px}.document-letterhead .document-seal{width:33px}}
+
+
+.document-emblem{display:block;flex:none;width:40px;aspect-ratio:1;background-repeat:no-repeat;background-size:260% 260%}
+.emblem-lawyer{background-position:9.375% 9.375%}
+.emblem-judge{background-position:90.625% 9.375%}
+.emblem-prosecutor{background-position:9.375% 90.625%}
+.document-letterhead .document-emblem{position:absolute;left:0;top:0;width:46px}
+.template-thumbnail>.document-emblem{width:29px}
+
+@media(max-width:540px){.document-letterhead{padding-inline:41px}.document-letterhead .document-emblem{width:33px}}

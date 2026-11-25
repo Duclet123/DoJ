@@ -35,19 +35,24 @@ const lineHeight = 39;
 const bodyTop = 395;
 const linesPerPage = 31;
 
-function logo(ctx) {
-  ctx.save();
-  ctx.translate(margin + 49, 192);
-  ctx.strokeStyle = '#ad8545';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(0, 0, 49, 0, 2 * Math.PI);
-  ctx.stroke();
-  ctx.fillStyle = '#183149';
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 29px Georgia';
-  ctx.fillText('SA', 0, 10);
-  ctx.restore();
+const emblemUrl = new URL('./role-emblems.webp', import.meta.url).href;
+const emblems = {
+  lawyer: [0.25, 0.25],
+  judge: [0.75, 0.25],
+  prosecutor: [0.25, 0.75]
+};
+
+function emblem(node, role) {
+  const mark = node('span', null, { class: 'document-emblem emblem-' + role, 'aria-hidden': 'true' });
+  mark.style.backgroundImage = 'url("' + emblemUrl + '")';
+  return mark;
+}
+
+function logo(ctx, image, role) {
+  const [x, y] = emblems[role];
+  const size = Math.min(image.naturalWidth, image.naturalHeight) / 2.6;
+  ctx.drawImage(image, x * image.naturalWidth - size / 2, y * image.naturalHeight - size / 2,
+    size, size, margin, 136, 122, 122);
 }
 
 function wrap(ctx, text, limit) {
@@ -75,7 +80,7 @@ function wrap(ctx, text, limit) {
   return lines;
 }
 
-function pages(document, author) {
+function pages(document, author, artwork) {
   const canvas = () => Object.assign(window.document.createElement('canvas'), { width, height });
   const first = canvas();
   const measure = first.getContext('2d');
@@ -89,7 +94,7 @@ function pages(document, author) {
     const ctx = sheet.getContext('2d');
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, width, height);
-    logo(ctx);
+    logo(ctx, artwork, author.role);
     ctx.textAlign = 'center';
     ctx.fillStyle = '#183149';
     ctx.font = 'bold 42px Georgia';
@@ -210,7 +215,9 @@ export function settingsPanel(parent, user, node) {
 }
 
 export async function documentsPanel(parent, user, api, node, selectedId) {
-  const records = await api('documents');
+  const artwork = new Image();
+  artwork.src = emblemUrl;
+  const [records] = await Promise.all([api('documents'), artwork.decode()]);
   const selected = records.find((item) => item.id === selectedId);
   const root = node('div', null, { class: 'documents-grid' });
   const list = node('aside', null, { class: 'document-box' });
@@ -248,7 +255,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
 
   const paper = node('div', null, { class: 'document-paper' });
   const letterhead = node('div', null, { class: 'document-letterhead' });
-  letterhead.append(node('span', 'SA', { class: 'document-seal', 'aria-hidden': 'true' }),
+  letterhead.append(emblem(node, user.role),
     node('strong', office[user.role] || 'Department of Justice'), node('small', user.username));
   paper.append(letterhead, title, body, signatureLine);
   form.append(paper, insertSignature);
@@ -276,7 +283,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
     for (const [id, [name, text]] of Object.entries(availableTemplates)) {
       const button = node('button', null, { type: 'button', class: 'template-card' });
       const thumbnail = node('span', null, { class: 'template-thumbnail', 'aria-hidden': 'true' });
-      thumbnail.append(node('span', 'SA'), node('strong', office[user.role] || 'Department of Justice'));
+      thumbnail.append(emblem(node, user.role), node('strong', office[user.role] || 'Department of Justice'));
       if (id !== 'blank') thumbnail.append(node('b', name), node('small', text));
       button.append(thumbnail, node('span', name));
       button.addEventListener('click', () => {
@@ -333,7 +340,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   const drawPreview = () => {
     if (!sample.open) return;
     const data = snapshot();
-    const sheets = pages({ ...data, title: data.title || 'Τίτλος εγγράφου' }, user);
+    const sheets = pages({ ...data, title: data.title || 'Τίτλος εγγράφου' }, user, artwork);
     activePage = Math.max(0, Math.min(activePage, sheets.count - 1));
     preview.replaceChildren(sheets.sheet(activePage));
     controls.hidden = sheets.count <= 1;
@@ -348,7 +355,7 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   sample.append(controls, preview);
   work.append(form, sample);
   editor.append(work);
-  outputs(work, () => pages(snapshot(), user), () => title.value, node);
+  outputs(work, () => pages(snapshot(), user, artwork), () => title.value, node);
   root.append(list, editor);
   parent.append(root);
 }
