@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import { createClient } from '@libsql/client';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const roles = ['lawyer', 'prosecutor', 'judge'];
 const actions = {
@@ -10,11 +12,24 @@ const actions = {
   judge: { hearing: 'Ορισμός ακρόασης', decision: 'Έκδοση απόφασης', publish: 'Δημοσίευση απόφασης' }
 };
 
+const remoteUrl = process.env.TURSO_DATABASE_URL;
+const authToken = process.env.TURSO_AUTH_TOKEN;
+if (process.env.RENDER === 'true' && (!remoteUrl || !authToken)) {
+  throw new Error('Render requires a persistent Turso database.');
+}
+if (remoteUrl && (!/^(libsql|https):\/\//.test(remoteUrl) || !authToken)) {
+  throw new Error('Configure TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.');
+}
 const directory = process.env.DATA_DIR || 'data';
-mkdirSync(directory, { recursive: true, mode: 0o700 });
-const db = new DatabaseSync(directory + '/doj.sqlite');
-db.exec(`
-  PRAGMA journal_mode = WAL;
+if (!remoteUrl) mkdirSync(directory, { recursive: true, mode: 0o700 });
+const db = createClient({ url: remoteUrl || pathToFileURL(resolve(directory, 'doj.sqlite')).href, authToken });
+const query = (sql, ...args) => db.execute({ sql, args });
+const one = async (sql, ...args) => (await query(sql, ...args)).rows[0];
+const all = async (sql, ...args) => (await query(sql, ...args)).rows;
+const statement = (sql, ...args) => ({ sql, args });
+
+if (!remoteUrl) await query('PRAGMA journal_mode = WAL');
+await db.executeMultiple(`
   PRAGMA foreign_keys = ON;
   CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, role TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, username TEXT REFERENCES users ON DELETE CASCADE, expires INTEGER NOT NULL);
@@ -37,7 +52,7 @@ for (const { username, role, password } of JSON.parse(process.env.DOJ_USERS || '
     throw new Error('Invalid DOJ_USERS entry');
   }
   const salt = randomBytes(16).toString('hex');
-  db.prepare('INSERT OR IGNORE INTO users VALUES (?, ?, ?, ?)').run(username, role, salt, passwordHash(password, salt).toString('hex'));
+  await query('INSERT OR IGNORE INTO users VALUES (?, ?, ?, ?)', username, role, salt, passwordHash(password, salt).toString('hex'));
 }
 
 const fallbackSalt = randomBytes(16).toString('hex');
@@ -81,23 +96,6 @@ function field(data, name, max) {
   return value;
 }
 
-function addEntry(id, kind, body, author, hearingAt = null) {
-  db.prepare('INSERT INTO entries(case_id, kind, body, author, created, hearing_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, kind, body, author, new Date().toISOString(), hearingAt);
-}
-
-function transaction(work) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = work();
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
-}
-
 const loginAttempts = new Map();
 async function route(req, res) {
   const path = new URL(req.url, 'http://localhost').pathname;
@@ -109,13 +107,13 @@ async function route(req, res) {
   }
 
   if (method === 'GET' && path === '/api/public') {
-    const decisions = db.prepare("SELECT case_id, body, created FROM entries WHERE kind = 'publish' ORDER BY id DESC").all();
-    const hearings = db.prepare(`
+    const decisions = await all("SELECT case_id, body, created FROM entries WHERE kind = 'publish' ORDER BY id DESC");
+    const hearings = await all(`
       SELECT e.case_id, e.hearing_at FROM entries e JOIN cases c ON c.id = e.case_id
       WHERE e.kind = 'hearing' AND c.status = 'scheduled' AND e.hearing_at >= ?
       AND e.id = (SELECT MAX(id) FROM entries WHERE case_id = e.case_id AND kind = 'hearing')
       ORDER BY e.hearing_at
-    `).all(new Date().toISOString());
+    `, new Date().toISOString());
     return send(res, 200, { decisions, hearings });
   }
 
@@ -130,41 +128,41 @@ async function route(req, res) {
     const ip = req.socket.remoteAddress;
     const attempt = loginAttempts.get(ip) || { count: 0, until: now + 600000 };
     if (attempt.count >= 12 || loginAttempts.size >= 10000) fail(429, 'Δοκίμασε ξανά σε λίγα λεπτά.');
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+    attempt.count += 1;
+    loginAttempts.set(ip, attempt);
+    const user = await one('SELECT * FROM users WHERE username = ?', username);
     const candidate = passwordHash(password, user?.salt || fallbackSalt);
     if (!user || !timingSafeEqual(candidate, Buffer.from(user.hash, 'hex'))) {
-      attempt.count += 1;
-      loginAttempts.set(ip, attempt);
       fail(401, 'Τα στοιχεία σύνδεσης δεν είναι σωστά.');
     }
     loginAttempts.delete(ip);
-    db.prepare('DELETE FROM sessions WHERE expires <= ?').run(now);
+    await query('DELETE FROM sessions WHERE expires <= ?', now);
     const token = randomBytes(32).toString('hex');
-    db.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(digest(token), username, now + 28800000);
+    await query('INSERT INTO sessions VALUES (?, ?, ?)', digest(token), username, now + 28800000);
     res.setHeader('Set-Cookie', 'doj=' + token + '; Max-Age=28800; ' + sessionCookie);
     return send(res, 200, { username, role: user.role });
   }
 
   if (!path.startsWith('/api/')) fail(404, 'Η σελίδα δεν βρέθηκε.');
   const token = req.headers.cookie?.match(/(?:^|;\s*)doj=([a-f0-9]{64})(?:;|$)/)?.[1];
-  const user = token && db.prepare(`
+  const user = token && await one(`
     SELECT u.username, u.role FROM sessions s JOIN users u ON u.username = s.username
     WHERE s.token = ? AND s.expires > ?
-  `).get(digest(token), Date.now());
+  `, digest(token), Date.now());
 
   if (!user) fail(401, 'Χρειάζεται σύνδεση.');
   if (method === 'GET' && path === '/api/me') return send(res, 200, user);
   if (method === 'POST' && path === '/api/logout') {
     await readBody(req);
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(digest(token));
+    await query('DELETE FROM sessions WHERE token = ?', digest(token));
     res.setHeader('Set-Cookie', 'doj=; Max-Age=0; ' + sessionCookie);
     return send(res, 200, {});
   }
   if (method === 'GET' && path === '/api/cases') {
-    return send(res, 200, db.prepare(`SELECT * FROM cases WHERE ${user.role} = ? ORDER BY id DESC`).all(user.username));
+    return send(res, 200, await all(`SELECT * FROM cases WHERE ${user.role} = ? ORDER BY id DESC`, user.username));
   }
   if (method === 'GET' && path === '/api/assignable' && user.role === 'prosecutor') {
-    return send(res, 200, db.prepare("SELECT username, role FROM users WHERE role IN ('lawyer', 'judge') ORDER BY username").all());
+    return send(res, 200, await all("SELECT username, role FROM users WHERE role IN ('lawyer', 'judge') ORDER BY username"));
   }
   if (method === 'POST' && path === '/api/cases' && user.role === 'prosecutor') {
     const input = await readBody(req);
@@ -173,26 +171,24 @@ async function route(req, res) {
     const indictment = field(input, 'body', 12000);
     const lawyer = field(input, 'lawyer', 40);
     const judge = field(input, 'judge', 40);
-    const lookup = db.prepare('SELECT 1 FROM users WHERE role = ? AND username = ?');
-    if (!lookup.get('lawyer', lawyer) || !lookup.get('judge', judge)) fail(400, 'Μη έγκυρη ανάθεση.');
-    const id = transaction(() => {
-      const result = db.prepare('INSERT INTO cases(title, defendant, prosecutor, lawyer, judge) VALUES (?, ?, ?, ?, ?)')
-        .run(title, defendant, user.username, lawyer, judge);
-      addEntry(result.lastInsertRowid, 'indictment', indictment, user.username);
-      return result.lastInsertRowid;
-    });
-    return send(res, 201, { id });
+    const lookup = 'SELECT 1 FROM users WHERE role = ? AND username = ?';
+    if (!await one(lookup, 'lawyer', lawyer) || !await one(lookup, 'judge', judge)) fail(400, 'Μη έγκυρη ανάθεση.');
+    const [result] = await db.batch([
+      statement('INSERT INTO cases(title, defendant, prosecutor, lawyer, judge) VALUES (?, ?, ?, ?, ?)',
+        title, defendant, user.username, lawyer, judge),
+      statement("INSERT INTO entries(case_id, kind, body, author, created) VALUES (last_insert_rowid(), 'indictment', ?, ?, ?)",
+        indictment, user.username, new Date().toISOString())
+    ], 'write');
+    return send(res, 201, { id: Number(result.lastInsertRowid) });
   }
 
   const match = path.match(/^\/api\/cases\/(\d+)$/);
   if (!match) fail(404, 'Η ενέργεια δεν βρέθηκε.');
   const id = Number(match[1]);
-  const getCase = () => db.prepare(`SELECT * FROM cases WHERE id = ? AND ${user.role} = ?`).get(id, user.username);
-  const record = getCase();
+  const record = await one(`SELECT * FROM cases WHERE id = ? AND ${user.role} = ?`, id, user.username);
   if (!record) fail(404, 'Η υπόθεση δεν βρέθηκε.');
   if (method === 'GET') {
-    const entries = db.prepare("SELECT * FROM entries WHERE case_id = ? AND (kind <> 'note' OR author = ?) ORDER BY id")
-      .all(id, user.username);
+    const entries = await all("SELECT * FROM entries WHERE case_id = ? AND (kind <> 'note' OR author = ?) ORDER BY id", id, user.username);
     return send(res, 200, { ...record, entries });
   }
   if (method !== 'POST') fail(405, 'Μη διαθέσιμη μέθοδος.');
@@ -206,15 +202,15 @@ async function route(req, res) {
     if (!Number.isFinite(date.getTime()) || date <= new Date()) fail(400, 'Όρισε μελλοντική ημερομηνία ακρόασης.');
     hearingAt = date.toISOString();
   }
-  transaction(() => {
-    const current = getCase();
-    if (kind === 'publish' ? current.status !== 'decided' : current.status === 'decided' || current.status === 'published') {
-      fail(409, 'Η κατάσταση της υπόθεσης δεν επιτρέπει αυτή την ενέργεια.');
-    }
-    addEntry(id, kind, body, user.username, hearingAt);
-    const next = { hearing: 'scheduled', decision: 'decided', publish: 'published' }[kind];
-    if (next) db.prepare('UPDATE cases SET status = ? WHERE id = ?').run(next, id);
-  });
+  const allowedStatus = kind === 'publish' ? "status = 'decided'" : "status IN ('filed', 'scheduled')";
+  const next = { hearing: 'scheduled', decision: 'decided', publish: 'published' }[kind];
+  const statements = [statement(`
+    INSERT INTO entries(case_id, kind, body, author, created, hearing_at)
+    SELECT id, ?, ?, ?, ?, ? FROM cases WHERE id = ? AND ${user.role} = ? AND ${allowedStatus}
+  `, kind, body, user.username, new Date().toISOString(), hearingAt, id, user.username)];
+  if (next) statements.push(statement('UPDATE cases SET status = ? WHERE id = ? AND changes() = 1', next, id));
+  const [inserted] = await db.batch(statements, 'write');
+  if (!inserted.rowsAffected) fail(409, 'Η κατάσταση της υπόθεσης δεν επιτρέπει αυτή την ενέργεια.');
   return send(res, 201, {});
 }
 
