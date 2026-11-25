@@ -244,6 +244,46 @@ function caseEntries(parent, label, entries) {
   area.append(grid);
 }
 
+let activeCaseTab;
+
+function caseTabs(parent, id, tabs) {
+  const bar = node('div', null, { class: 'case-tabs', role: 'tablist', 'aria-label': 'Ενότητες υπόθεσης' });
+  const rows = tabs.map(([key, label, panel]) => {
+    const button = node('button', label, { type: 'button', role: 'tab', id: 'tab-' + key, 'aria-controls': 'panel-' + key });
+    panel.id = 'panel-' + key;
+    panel.classList.add('case-panel');
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', button.id);
+    panel.tabIndex = 0;
+    bar.append(button);
+    return { key, button, panel };
+  });
+  const select = (chosen) => {
+    activeCaseTab = { id, key: chosen.key };
+    for (const row of rows) {
+      const selected = row === chosen;
+      row.button.setAttribute('aria-selected', String(selected));
+      row.button.tabIndex = selected ? 0 : -1;
+      row.panel.hidden = !selected;
+    }
+  };
+  rows.forEach((row, index) => {
+    row.button.addEventListener('click', () => select(row));
+    row.button.addEventListener('keydown', (event) => {
+      const indices = { ArrowLeft: (index - 1 + rows.length) % rows.length, ArrowRight: (index + 1) % rows.length, Home: 0, End: rows.length - 1 };
+      if (!Object.hasOwn(indices, event.key)) return;
+      event.preventDefault();
+      const next = rows[indices[event.key]];
+      select(next);
+      next.button.focus();
+      next.button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  });
+  const previous = activeCaseTab?.id === id && rows.find((row) => row.key === activeCaseTab.key);
+  select(previous || rows[0]);
+  parent.append(bar, ...rows.map((row) => row.panel));
+}
+
 async function workspace(id, loginRoute, adminRoute) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
@@ -278,7 +318,7 @@ async function workspace(id, loginRoute, adminRoute) {
   accountLink.textContent = 'Ο λογαριασμός μου';
   accountLink.href = '#workspace';
 
-  const bar = node('div', null, { class: 'toolbar' });
+  const bar = node('div', null, { class: 'toolbar workspace-bar' });
   const logout = node('button', 'Αποσύνδεση', { class: 'secondary' });
   const logoutError = node('span', '', { class: 'error', role: 'alert' });
   logout.addEventListener('click', async () => {
@@ -311,28 +351,46 @@ async function workspace(id, loginRoute, adminRoute) {
       shell.append(node('p', error.message, { role: 'alert' }));
       return { shell };
     }
-    const details = section(shell, number(record.id) + ' · ' + record.title);
-    details.append(node('p', 'Κατηγορούμενος: ' + record.defendant + ' · ' + statuses[record.status]));
-    details.append(node('p', 'Εισαγγελέας: ' + record.prosecutor + ' · Δικηγόρος: ' + record.lawyer + ' · Δικαστής: ' + record.judge));
-    const print = node('button', 'Εκτύπωση φακέλου', { class: 'secondary' });
-    print.classList.add('toolbar');
+    const details = node('section', null, { class: 'case-summary' });
+    const top = node('div', null, { class: 'case-summary-top' });
+    const heading = node('div');
+    heading.append(node('p', number(record.id), { class: 'case-reference' }), node('h1', record.title));
+    const print = node('button', 'Εκτύπωση φακέλου', { type: 'button', class: 'case-print' });
     print.addEventListener('click', () => window.print());
-    details.append(print);
-    if (record.creator === user.id) await caseAccess(shell, record);
-    caseEntries(shell, 'Κατηγορητήριο', record.entries.filter((entry) => entry.kind === 'indictment'));
-    caseEntries(shell, 'Exhibits', record.entries.filter((entry) => ['exhibit', 'evidence'].includes(entry.kind)));
+    top.append(heading, print);
+    const facts = node('dl', null, { class: 'case-facts' });
+    for (const [label, value] of [
+      ['Κατάσταση', statuses[record.status]], ['Κατηγορούμενος', record.defendant],
+      ['Εισαγγελέας', record.prosecutor], ['Δικηγόρος', record.lawyer], ['Δικαστής', record.judge]
+    ]) {
+      const fact = node('div');
+      fact.append(node('dt', label), node('dd', value));
+      facts.append(fact);
+    }
+    details.append(top, facts);
+    shell.append(details);
+
+    const indictment = node('div');
+    const exhibits = node('div');
+    const jury = node('div');
+    const history = node('div', null, { class: 'case-history' });
+    const tabs = [['indictment', 'Κατηγορητήριο', indictment], ['exhibits', 'Exhibits', exhibits],
+      ['jury', 'Ένορκοι', jury], ['history', 'Χρονολόγιο', history]];
+    caseEntries(indictment, 'Κατηγορητήριο', record.entries.filter((entry) => entry.kind === 'indictment'));
+    caseEntries(exhibits, 'Exhibits', record.entries.filter((entry) => ['exhibit', 'evidence'].includes(entry.kind)));
     const jurors = new Map();
     for (const entry of record.entries.filter((item) => item.kind === 'juror')) {
       jurors.set(entry.label.toLocaleLowerCase('el'), entry);
     }
-    caseEntries(shell, 'Ένορκοι', [...jurors.values()]);
-    caseEntries(shell, 'Χρονολόγιο υπόθεσης', record.entries);
+    caseEntries(jury, 'Ένορκοι', [...jurors.values()]);
+    caseEntries(history, 'Χρονολόγιο υπόθεσης', record.entries);
 
     const available = record.status === 'published' ? [] :
       record.status === 'decided' ? (user.role === 'judge' ? ['publish'] : []) :
       ['exhibit', ...{ lawyer: ['motion', 'note'], prosecutor: [], judge: ['juror', 'hearing', 'decision'] }[user.role]];
     if (available.length) {
-      const actions = section(shell, 'Ενέργειες');
+      const actions = node('div', null, { class: 'case-actions' });
+      if (available.some((kind) => kind !== 'exhibit' && kind !== 'juror')) tabs.push(['actions', 'Ενέργειες', actions]);
       for (const kind of available) {
         const fields = [['body', kind === 'publish' ? 'Κείμενο για το δημόσιο site' : kinds[kind], 'textarea']];
         const actionLabel = { exhibit: 'Καταχώριση exhibit', juror: 'Καταχώριση ενόρκου' }[kind] || kinds[kind];
@@ -346,18 +404,36 @@ async function workspace(id, loginRoute, adminRoute) {
             ['juryStatus', 'Κατάσταση', 'select', Object.entries(juryStates).map(([id, username]) => ({ id, username }))]);
         }
         if (kind === 'hearing') fields.unshift(['hearingAt', 'Ημερομηνία και ώρα στη ζώνη της συσκευής σου', 'datetime-local']);
-        form(actions, actionLabel, fields, async (data) => {
+        const target = kind === 'exhibit' ? exhibits : kind === 'juror' ? jury : actions;
+        const panel = node('details', null, { class: 'case-action' });
+        panel.append(node('summary', actionLabel));
+        target.append(panel);
+        form(panel, actionLabel, fields, async (data) => {
           if (data.hearingAt) data.hearingAt = new Date(data.hearingAt).toISOString();
           await api('cases/' + id, { kind, ...data });
           await render();
         });
       }
     }
+    if (record.creator === user.id) {
+      const access = node('div', null, { class: 'case-actions' });
+      tabs.push(['access', 'Πρόσβαση', access]);
+      try {
+        await caseAccess(access, record);
+      } catch (error) {
+        access.append(node('p', error.message, { role: 'alert' }));
+      }
+    }
+    caseTabs(shell, id, tabs);
     return { shell };
   }
 
   shell.append(node('h1', 'Workspace · ' + roleNames[user.role]));
-  const create = section(shell, 'Νέα υπόθεση');
+  const dashboard = node('div', null, { class: 'workspace-grid' });
+  shell.append(dashboard);
+  const overview = section(dashboard, 'Οι υποθέσεις μου');
+  const create = section(dashboard, 'Νέα υπόθεση');
+  create.classList.add('workspace-create');
   form(create, 'Δημιουργία υπόθεσης', [
     ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
     ['body', 'Κατηγορητήριο', 'textarea']
@@ -372,7 +448,6 @@ async function workspace(id, loginRoute, adminRoute) {
     location.hash = '#workspace/' + created.id;
   });
 
-  const overview = section(shell, 'Οι υποθέσεις μου');
   let cases;
   try {
     cases = await api('cases');
@@ -387,7 +462,7 @@ async function workspace(id, loginRoute, adminRoute) {
     const matches = cases.filter((item) => [number(item.id), item.title, item.defendant].join(' ').toLocaleLowerCase('el').includes(query));
     grid.replaceChildren(...matches.map((item) => {
       const itemLink = link('', '#workspace/' + item.id, 'card-link');
-      itemLink.append(card(number(item.id) + ' · ' + item.title, statuses[item.status]));
+      itemLink.append(card(item.title, number(item.id) + ' · ' + statuses[item.status], item.defendant));
       return itemLink;
     }));
     if (!matches.length) grid.append(node('p', cases.length ? 'Δεν βρέθηκαν υποθέσεις.' : 'Δεν σου έχουν ανατεθεί υποθέσεις.'));
