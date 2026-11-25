@@ -249,3 +249,16 @@ form[hidden]{display:none}
 .template-thumbnail>.document-emblem{width:29px}
 
 @media(max-width:540px){.document-letterhead{padding-inline:41px}.document-letterhead .document-emblem{width:33px}}
+
+.office-heading{display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap}
+.office-heading h1{margin:0}
+.office-dashboard{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:24px}
+.office-overview>section,.workspace-editorial>.workspace-create{padding:19px 0;border-bottom:1px solid var(--line)}
+.office-overview h2{font-size:clamp(22px,3vw,30px)}
+.office-row{display:flex;gap:6px 14px;flex-wrap:wrap;justify-content:space-between;border-top:1px solid var(--line);padding:8px 0;text-decoration:none}
+.office-row:hover{color:var(--accent);text-decoration:underline}
+.office-overview .cards{grid-template-columns:1fr}
+.office-overview .filters{grid-template-columns:minmax(0,1fr)}
+.office-overview .card p{margin-bottom:0}
+.featured-hearing{border-top:3px solid var(--accent)}
+@media(max-width:710px){.office-dashboard{grid-template-columns:1fr}}

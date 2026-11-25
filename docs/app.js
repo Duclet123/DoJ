@@ -129,27 +129,27 @@ async function publicSite(fragment) {
   }
   content.append(services);
   const introduction = section(content, 'Το Department of Justice');
-  introduction.append(node('p', 'Η δημόσια πύλη του DoJ για το San Andreas RP. Εδώ βρίσκεις τη δικαστική ομάδα, το πρόγραμμα ακροάσεων και τα δημοσιευμένα κείμενα. Αν ενδιαφέρεσαι να ενταχθείς στο προσωπικό, μπορείς να υποβάλεις αίτηση.'));
-  const roles = node('div', null, { class: 'cards' });
-  roles.append(
-    card('Δικηγόροι', 'Υπεράσπιση', 'Εκπροσωπούν χαρακτήρες, καταθέτουν αιτήματα και εξετάζουν στοιχεία της υπόθεσης.'),
-    card('Εισαγγελείς', 'Κατηγορούσα αρχή', 'Παρουσιάζουν τις κατηγορίες ανά άρθρο και συνδέουν τα σχετικά exhibits.'),
-    card('Δικαστές', 'Δικαστήριο', 'Ορίζουν ακροάσεις, καταγράφουν ετυμηγορίες και δημοσιεύουν αποφάσεις.')
-  );
-  introduction.append(roles);
+  introduction.append(node('p', 'Η δικαστική πύλη του San Andreas RP.'));
+  const hearings = section(content, 'Προσεχείς ακροάσεις', 'hearings');
   const roster = section(content, 'Roster', 'roster');
   const rosterGrid = node('div', null, { class: 'cards' });
   roster.append(rosterGrid);
   try {
     const members = await api('roster');
-    for (const member of members.sort((a, b) => a.username.localeCompare(b.username, 'el'))) {
-      rosterGrid.append(card(member.username, roleNames[member.role]));
+    for (const [role, label] of [['judge', 'Court'], ['prosecutor', 'Prosecution'], ['lawyer', 'Law Offices']]) {
+      const group = members.filter((member) => member.role === role).sort((a, b) => a.username.localeCompare(b.username, 'el'));
+      if (!group.length) continue;
+      const column = node('article', null, { class: 'card' });
+      column.append(node('h3', label));
+      const names = node('ul');
+      names.append(...group.map((member) => node('li', member.username)));
+      column.append(names);
+      rosterGrid.append(column);
     }
     if (!members.length) rosterGrid.append(node('p', 'Δεν έχουν δημοσιευτεί ακόμη μέλη προσωπικού.'));
   } catch {
     rosterGrid.append(node('p', 'Το Roster δεν είναι διαθέσιμο αυτή τη στιγμή.'));
   }
-  const hearings = section(content, 'Προσεχείς ακροάσεις', 'hearings');
   const decisions = section(content, 'Δημοσιευμένες αποφάσεις', 'decisions');
   shell.append(hero, content);
   let records;
@@ -167,6 +167,7 @@ async function publicSite(fragment) {
     const grid = node('div', null, { class: 'cards' });
     if (list.length) grid.append(...list.map(makeCard));
     else grid.append(node('p', empty));
+    if (area === hearings && list.length) grid.firstElementChild.classList.add('featured-hearing');
     area.append(grid);
   }
   return { shell, anchor: fragment === 'hearings' ? hearings : fragment === 'decisions' ? decisions : fragment === 'roster' ? roster : null };
@@ -568,7 +569,7 @@ function caseTabs(parent, id, tabs) {
   parent.append(bar, ...rows.map((row) => row.panel));
 }
 
-async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute) {
+async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute, officeSection) {
   const shell = node('div', null, { class: 'wrap content' });
   let user;
   try {
@@ -604,13 +605,17 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   shell.classList.add('workspace-editorial');
 
   const bar = node('nav', null, { class: 'toolbar workspace-bar', 'aria-label': 'Office' });
-  bar.append(link('Οι υποθέσεις μου', '#workspace'));
-  bar.append(link('Τα έγγραφά μου', '#workspace/documents'));
+  bar.append(link('Αρχική Office', '#workspace'));
+  if (user.role === 'judge') {
+    bar.append(link('Ακροάσεις', '#workspace/hearings'), link('Αποφάσεις', '#workspace/decisions'));
+  }
+  bar.append(link(user.role === 'lawyer' ? 'Οι αναθέσεις μου' : 'Οι υποθέσεις μου', '#workspace/cases'));
+  bar.append(link(user.role === 'prosecutor' ? 'Κατηγορητήρια και έγγραφα' : 'Τα έγγραφά μου', '#workspace/documents'));
   bar.append(link('Υπογραφή εγγράφου', '#workspace/signature'));
   if (user.admin === true) bar.append(link('Διαχείριση προσωπικού', '#workspace/admin'));
   for (const item of bar.querySelectorAll('a')) {
     const target = item.getAttribute('href');
-    if (target === location.hash || (documentRoute && target === '#workspace/documents') || (id && target === '#workspace')) {
+    if (target === location.hash || (documentRoute && target === '#workspace/documents') || (id && target === '#workspace/cases')) {
       item.setAttribute('aria-current', 'page');
     }
   }
@@ -664,7 +669,28 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     const charges = node('div');
     const jury = node('div');
     const history = node('div', null, { class: 'case-history' });
-    const tabs = [['indictment', 'Κατηγορητήριο', indictment], ['charges', 'Κατηγορίες', charges], ['exhibits', 'Exhibits', exhibits],
+    const summary = node('div');
+    const latest = record.entries.filter((entry) => entry.kind !== 'note').at(-1);
+    const scheduled = record.status === 'scheduled' && record.entries.filter((entry) => entry.kind === 'hearing').at(-1);
+    const totalCharges = record.entries.filter((entry) => entry.kind === 'charge').length;
+    const totalExhibits = record.entries.filter((entry) => ['exhibit', 'evidence'].includes(entry.kind)).length;
+    const stats = section(summary, 'Σύνοψη υπόθεσης');
+    const summaryGrid = node('div', null, { class: 'cards' });
+    summaryGrid.append(card('Ακρόαση', scheduled ? date(scheduled.hearing_at) : 'Δεν υπάρχει ενεργή ακρόαση'),
+      card('Κατηγορίες και exhibits', totalCharges + ' κατηγορίες · ' + totalExhibits + ' exhibits'),
+      card('Τελευταία ενέργεια', latest ? (kinds[latest.kind] || latest.kind) + ' · ' + date(latest.created) : 'Δεν υπάρχουν καταχωρίσεις'));
+    const shortcuts = node('div', null, { class: 'document-tools' });
+    for (const [key, label] of [['charges', 'Κατηγορίες'], ['exhibits', 'Exhibits'], ['history', 'Χρονολόγιο']]) {
+      const button = node('button', label, { type: 'button', class: 'secondary' });
+      button.addEventListener('click', () => {
+        const target = shell.querySelector('#tab-' + key);
+        target.click();
+        target.focus();
+      });
+      shortcuts.append(button);
+    }
+    stats.append(summaryGrid, shortcuts);
+    const tabs = [['summary', 'Σύνοψη', summary], ['indictment', 'Κατηγορητήριο', indictment], ['charges', 'Κατηγορίες', charges], ['exhibits', 'Exhibits', exhibits],
       ['jury', 'Ένορκοι', jury], ['history', 'Χρονολόγιο', history]];
     caseEntries(indictment, 'Κατηγορητήριο', record.entries.filter((entry) => entry.kind === 'indictment'));
     caseEntries(exhibits, 'Exhibits', record.entries.filter((entry) => ['exhibit', 'evidence'].includes(entry.kind)));
@@ -719,12 +745,30 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     return { shell };
   }
 
-  shell.append(node('h1', 'Office · ' + roleNames[user.role]));
-  const dashboard = node('div', null, { class: 'workspace-grid' });
-  shell.append(dashboard);
-  const overview = section(dashboard, 'Οι υποθέσεις μου');
-  const create = section(dashboard, 'Νέα υπόθεση');
+  const header = node('div', null, { class: 'office-heading' });
+  const openCreate = node('button', 'Νέα υπόθεση', { type: 'button', 'aria-controls': 'office-create', 'aria-expanded': 'false' });
+  header.append(node('h1', 'Office · ' + roleNames[user.role]), openCreate);
+  const create = section(shell, 'Νέα υπόθεση', 'office-create');
   create.classList.add('workspace-create');
+  create.hidden = true;
+  shell.insertBefore(header, create);
+  openCreate.addEventListener('click', () => {
+    create.hidden = !create.hidden;
+    openCreate.setAttribute('aria-expanded', String(!create.hidden));
+    if (!create.hidden) create.querySelector('input')?.focus();
+  });
+  const dashboard = node('div', null, { class: 'office-dashboard' });
+  shell.append(dashboard);
+  const docketPanel = node('div', null, { class: 'office-overview' });
+  const archive = node('div', null, { class: 'office-overview' });
+  if (user.role !== 'judge') dashboard.append(archive, docketPanel);
+  else dashboard.append(docketPanel, archive);
+  const hearings = section(docketPanel, 'Επόμενες ακροάσεις', 'office-hearings');
+  const decisions = section(docketPanel, 'Αποφάσεις υποθέσεών μου', 'office-decisions');
+  const recent = section(archive, 'Πρόσφατα έγγραφα');
+  const overview = section(archive, 'Οι υποθέσεις μου', 'office-cases');
+  if (user.role === 'prosecutor') archive.prepend(overview);
+  const anchors = { hearings, decisions, cases: overview };
   form(create, 'Δημιουργία υπόθεσης', [
     ['title', 'Τίτλος', 'text'], ['defendant', 'Κατηγορούμενος', 'text'],
     ['body', 'Κατηγορητήριο', 'textarea']
@@ -739,31 +783,60 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
     location.hash = '#workspace/' + created.id;
   });
 
-  let cases;
-  try {
-    cases = await api('cases');
-  } catch (error) {
-    overview.append(node('p', 'Η λίστα υποθέσεων δεν φορτώθηκε. ' + error.message, { role: 'alert' }));
-    return { shell };
+  const [caseResult, docketResult, documentResult] = await Promise.allSettled([
+    api('cases'), api('public'), api('documents')
+  ]);
+  const cases = caseResult.status === 'fulfilled' ? caseResult.value : [];
+  const visible = new Map(cases.map((item) => [item.id, item]));
+  const addDocket = (area, records, dateKey, empty) => {
+    if (caseResult.status !== 'fulfilled' || docketResult.status !== 'fulfilled') {
+      area.append(node('p', 'Δεν ήταν δυνατή η φόρτωση.', { role: 'status' }));
+      return;
+    }
+    const own = records.filter((item) => visible.has(item.case_id)).slice(0, 4);
+    if (!own.length) area.append(node('p', empty));
+    for (const item of own) {
+      const row = link(visible.get(item.case_id).title, '#workspace/' + item.case_id, 'office-row');
+      row.append(node('small', date(item[dateKey])));
+      area.append(row);
+    }
+  };
+  addDocket(hearings, docketResult.value?.hearings || [], 'hearing_at', 'Δεν έχεις επερχόμενες ακροάσεις.');
+  addDocket(decisions, docketResult.value?.decisions || [], 'created', 'Δεν υπάρχουν δημόσιες αποφάσεις για τις υποθέσεις σου.');
+  const documents = documentResult.value || [];
+  if (!documents.length) recent.append(node('p', documentResult.status === 'fulfilled' ? 'Δεν έχεις αποθηκευμένα έγγραφα.' : 'Τα έγγραφα δεν φορτώθηκαν.'));
+  for (const item of documents.slice(0, 4)) recent.append(link(item.title, '#workspace/documents/' + item.id, 'office-row'));
+  recent.append(link('Όλα τα έγγραφα', '#workspace/documents'));
+  if (caseResult.status !== 'fulfilled') {
+    overview.append(node('p', 'Η λίστα υποθέσεων δεν φορτώθηκε. ' + caseResult.reason.message, { role: 'alert' }));
+    return { shell, anchor: anchors[officeSection] };
   }
+  const filter = node('select', null, { 'aria-label': 'Κατάσταση υποθέσεων' });
+  for (const [value, label] of [['active', 'Ενεργές υποθέσεις'], ['all', 'Όλες οι υποθέσεις']]) filter.append(node('option', label, { value }));
+  if (officeSection === 'cases') filter.value = 'all';
   const grid = node('div', null, { class: 'cards' });
   const search = node('input', null, { type: 'search', placeholder: 'Αριθμός υπόθεσης, τίτλος ή κατηγορούμενος', 'aria-label': 'Αναζήτηση υποθέσεων' });
   const updateCases = () => {
     const query = search.value.trim().toLocaleLowerCase('el');
-    const matches = cases.filter((item) => [number(item.id), item.title, item.defendant].join(' ').toLocaleLowerCase('el').includes(query));
+    const matches = cases.filter((item) => (filter.value === 'all' || ['filed', 'scheduled'].includes(item.status)) && [number(item.id), item.title, item.defendant].join(' ').toLocaleLowerCase('el').includes(query));
     grid.replaceChildren(...matches.map((item) => {
       const itemLink = link('', '#workspace/' + item.id, 'card-link');
       itemLink.append(card(item.title, number(item.id) + ' · ' + statuses[item.status], item.defendant));
       return itemLink;
     }));
-    if (!matches.length) grid.append(node('p', cases.length ? 'Δεν βρέθηκαν υποθέσεις.' : 'Δεν σου έχουν ανατεθεί υποθέσεις.'));
+    if (!matches.length) grid.append(node('p', cases.length ? 'Δεν βρέθηκαν υποθέσεις με αυτά τα φίλτρα.' : 'Δεν σου έχουν ανατεθεί υποθέσεις.'));
   };
   search.addEventListener('input', updateCases);
-  if (cases.length) overview.append(search);
+  filter.addEventListener('change', updateCases);
+  if (cases.length) {
+    const controls = node('div', null, { class: 'filters' });
+    controls.append(search, filter);
+    overview.append(controls);
+  }
   overview.append(grid);
   updateCases();
 
-  return { shell };
+  return { shell, anchor: anchors[officeSection] };
 }
 
 let renderId = 0;
@@ -778,12 +851,13 @@ async function render(message) {
     const documentRoute = fragment.match(/^workspace\/documents(?:\/([A-Za-z0-9]{20}))?$/);
     const signatureRoute = fragment === 'workspace/signature';
     const settingsRoute = fragment === 'workspace/settings';
-    const inWorkspace = loginRoute || adminRoute || match || documentRoute || signatureRoute || settingsRoute;
+    const officeSection = fragment.match(/^workspace\/(hearings|decisions|cases)$/)?.[1];
+    const inWorkspace = loginRoute || adminRoute || match || documentRoute || signatureRoute || settingsRoute || officeSection;
     if (!inWorkspace) {
       api('me').then((user) => { if (renderId === current) showAccount(user); })
         .catch(() => { if (renderId === current) showAccount(null); });
     }
-    const page = inWorkspace ? workspace(match?.[1], loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute) :
+    const page = inWorkspace ? workspace(match?.[1], loginRoute, adminRoute, documentRoute, signatureRoute, settingsRoute, officeSection) :
       fragment === 'penal-code' ? penalCode() : fragment === 'legal-framework' ? legalFramework() :
         fragment === 'applications' ? applicationsPage() : publicSite(fragment);
     const { shell, anchor, status } = await page;
