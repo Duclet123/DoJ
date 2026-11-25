@@ -610,7 +610,7 @@ async function workspace(id, loginRoute, adminRoute, documentRoute, signatureRou
   }
   shell.append(bar);
   if (documentRoute || signatureRoute) {
-    const module = await import(new URL('documents.js?v=doj-interactive-1', firebaseModuleUrl).href);
+    const module = await import(new URL('documents.js?v=document-gallery-1', firebaseModuleUrl).href);
     if (signatureRoute) module.signaturePanel(shell, node);
     else await module.documentsPanel(shell, user, api, node, documentRoute[1]);
     return { shell };

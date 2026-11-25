@@ -183,35 +183,65 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   }
 
   const editor = node('section', null, { class: 'document-box' });
-  editor.append(node('h2', selected ? 'Επεξεργασία εγγράφου' : 'Δημιουργία εγγράφου'));
-  const form = node('form');
-  const template = node('select', null, { 'aria-label': 'Πρότυπο' });
+  const heading = node('h2', selected ? 'Επεξεργασία εγγράφου' : 'Δημιουργία εγγράφου');
+  editor.append(heading);
+  const form = node('form', null, { class: 'paper-editor' });
   const availableTemplates = user.role === 'lawyer'
     ? { ...templates, ...roleTemplates.lawyer }
     : { blank: templates.blank, ...roleTemplates[user.role] };
-  for (const [id, [label]] of Object.entries(availableTemplates)) template.append(node('option', label, { value: id }));
-  const title = node('input', null, { maxlength: '150', required: '' });
-  const body = node('textarea', null, { maxlength: '12000', rows: '13', required: '' });
-  const fields = [['Τίτλος', title], ['Κείμενο', body]];
-  if (!selected) {
-    fields.unshift(['Πρότυπο', template]);
-    template.addEventListener('change', () => {
-      const [name, text] = availableTemplates[template.value];
-      if ((title.value || body.value) && !window.confirm('Να αντικατασταστεί το κείμενο με το επιλεγμένο πρότυπο;')) {
-        template.value = template.dataset.previous || 'blank';
-        return;
-      }
-      template.dataset.previous = template.value;
-      title.value = template.value === 'blank' ? '' : name;
-      body.value = text;
-    });
-  }
+  const title = node('input', null, { maxlength: '150', required: '', placeholder: 'Τίτλος εγγράφου', 'aria-label': 'Τίτλος εγγράφου' });
+  const body = node('textarea', null, { maxlength: '12000', rows: '16', required: '', placeholder: 'Γράψε το κείμενο του εγγράφου…', 'aria-label': 'Κείμενο εγγράφου' });
   title.value = selected?.title || '';
   body.value = selected?.body || '';
-  for (const [name, input] of fields) {
-    const label = node('label', name);
-    label.append(input);
-    form.append(label);
+
+  const paper = node('div', null, { class: 'document-paper' });
+  const letterhead = node('div', null, { class: 'document-letterhead' });
+  letterhead.append(node('span', 'SA', { class: 'document-seal', 'aria-hidden': 'true' }),
+    node('strong', office[user.role] || 'Department of Justice'), node('small', user.username));
+  paper.append(letterhead, title, body);
+  form.append(paper);
+  const gallery = node('div', null, { class: 'template-gallery' });
+  const work = node('div', null, { class: 'document-editing' });
+  let templateBase = { title: '', body: '' };
+  function showGallery() {
+    if ((title.value !== templateBase.title || body.value !== templateBase.body) &&
+      !window.confirm('Να επιστρέψεις στα πρότυπα; Οι μη αποθηκευμένες αλλαγές θα χαθούν.')) return;
+    work.hidden = true;
+    gallery.hidden = false;
+    heading.textContent = 'Δημιουργία εγγράφου';
+    gallery.querySelector('button')?.focus();
+  }
+
+  if (!selected) {
+    const change = node('button', 'Επιλογή άλλου προτύπου', { type: 'button', class: 'secondary' });
+    change.addEventListener('click', showGallery);
+    work.append(change);
+    newLink.addEventListener('click', (event) => {
+      if (work.hidden) return;
+      event.preventDefault();
+      showGallery();
+    });
+    for (const [id, [name, text]] of Object.entries(availableTemplates)) {
+      const button = node('button', null, { type: 'button', class: 'template-card' });
+      const thumbnail = node('span', null, { class: 'template-thumbnail', 'aria-hidden': 'true' });
+      thumbnail.append(node('span', 'SA'), node('strong', office[user.role] || 'Department of Justice'));
+      if (id !== 'blank') thumbnail.append(node('b', name), node('small', text));
+      button.append(thumbnail, node('span', name));
+      button.addEventListener('click', () => {
+        templateBase = { title: id === 'blank' ? '' : name, body: text };
+        title.value = templateBase.title;
+        body.value = templateBase.body;
+        gallery.hidden = true;
+        work.hidden = false;
+        heading.textContent = id === 'blank' ? 'Κενό έγγραφο' : name;
+        activePage = 0;
+        drawPreview();
+        (id === 'blank' ? title : body).focus();
+      });
+      gallery.append(button);
+    }
+    work.hidden = true;
+    editor.append(gallery);
   }
   const status = node('p', '', { role: 'status' });
   const save = node('button', 'Αποθήκευση', { type: 'submit' });
@@ -259,10 +289,10 @@ export async function documentsPanel(parent, user, api, node, selectedId) {
   next.addEventListener('click', () => { activePage++; drawPreview(); });
   sample.addEventListener('toggle', drawPreview);
   form.addEventListener('input', drawPreview);
-  template.addEventListener('change', () => { activePage = 0; drawPreview(); });
   sample.append(controls, preview);
-  editor.append(form, sample);
-  outputs(editor, () => pages(snapshot(), user), () => title.value, node);
+  work.append(form, sample);
+  editor.append(work);
+  outputs(work, () => pages(snapshot(), user), () => title.value, node);
   root.append(list, editor);
   parent.append(root);
 }

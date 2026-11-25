@@ -211,3 +211,21 @@ form[hidden]{display:none}
 .legal-scenarios button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
 .document-tools[hidden]{display:none}
 .document-tools button:disabled{opacity:.55;cursor:default}
+
+.template-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:16px}
+.template-gallery[hidden],.document-editing[hidden]{display:none}
+.template-card{display:grid;align-content:start;gap:10px;text-align:left;background:var(--surface);color:var(--ink);border:1px solid var(--line);padding:10px;font-weight:650}
+.template-card:not(.secondary):hover{background:var(--wash);color:var(--accent-strong);border-color:var(--accent)}
+.template-thumbnail{display:flex;flex-direction:column;align-items:center;gap:5px;aspect-ratio:210/297;overflow:hidden;background:white;border:1px solid var(--line);padding:11px 7px;text-align:center;color:var(--ink);font-family:var(--heading)}
+.template-thumbnail>span{color:var(--accent);font-size:.72rem}
+.template-thumbnail strong,.template-thumbnail b,.template-thumbnail small{font-size:.67rem;overflow-wrap:anywhere}
+.template-thumbnail strong{border-bottom:1px solid var(--line);padding-bottom:5px;width:100%}
+.template-thumbnail small{white-space:pre-wrap;line-height:1.25;text-align:left}
+.document-editing .paper-editor{display:block;background:transparent}
+.document-paper{background:white;border:1px solid var(--line);min-height:620px;padding:clamp(14px,5vw,62px);margin-bottom:14px;box-shadow:0 3px 12px #40252d10}
+.document-letterhead{display:grid;justify-items:center;gap:5px;text-align:center;border-bottom:1px solid #ad8545;padding-bottom:16px;margin-bottom:22px;font:600 clamp(17px,3vw,25px) var(--heading)}
+.document-letterhead small{font-size:.875rem}
+.document-seal{display:grid;place-items:center;width:40px;aspect-ratio:1;border:1px solid #ad8545;border-radius:50%;font-size:.9rem}
+.document-paper input,.document-paper textarea{border:0;background:white;padding:5px;color:var(--ink);font-family:var(--heading)}
+.document-paper input{text-align:center;font-size:clamp(20px,3.4vw,30px);font-weight:700;margin-bottom:10px}
+.document-paper textarea{line-height:1.6;resize:vertical}
